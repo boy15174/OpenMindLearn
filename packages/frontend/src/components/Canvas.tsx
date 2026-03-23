@@ -6,6 +6,7 @@ import { NodeCard } from './NodeCard'
 import { Toolbar } from './Toolbar'
 import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
 import { useGraphStore } from '../stores/graphStore'
+import { useToastStore } from '../stores/toastStore'
 import { Plus, X, Eye, Pencil, RefreshCw } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
@@ -31,6 +32,7 @@ export function Canvas() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const { screenToFlowPosition } = useReactFlow()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
+  const { showToast } = useToastStore()
 
   // Monitor changes to set dirty flag
   useEffect(() => {
@@ -55,12 +57,26 @@ export function Canvas() {
   }, [setNodes])
 
   const handleExpand = useCallback(async (text: string, parentId: string, selectedNodeIds?: string[]) => {
+    // Get current nodes state
+    let currentNodes: any[] = []
+    let currentEdges: any[] = []
+
+    setNodes(nds => {
+      currentNodes = nds
+      return nds
+    })
+
+    setEdges(eds => {
+      currentEdges = eds
+      return eds
+    })
+
     // Convert ReactFlow nodes to Node type for context
-    const allNodes: Node[] = nodes.map(n => ({
+    const allNodes: Node[] = currentNodes.map(n => ({
       id: n.id,
       content: n.data.content || '',
       position: n.position,
-      parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
+      parentIds: currentEdges.filter(e => e.target === n.id).map(e => e.source),
       createdAt: new Date().toISOString()
     }))
 
@@ -138,10 +154,10 @@ export function Canvas() {
       link.click()
 
       setDirty(false)
-      alert('文件保存成功！')
+      showToast('文件保存成功！', 'success')
     } catch (error) {
       console.error('保存失败:', error)
-      alert('保存失败，请重试')
+      showToast('保存失败，请重试', 'error')
     }
   }
 
@@ -178,10 +194,10 @@ export function Canvas() {
 
         setNodes(rfNodes)
         setEdges(result.edges)
-        alert('文件加载成功！')
+        showToast('文件加载成功！', 'success')
       } catch (error) {
         console.error('加载失败:', error)
-        alert('加载失败，请检查文件格式')
+        showToast('加载失败，请检查文件格式', 'error')
       }
     }
     input.click()

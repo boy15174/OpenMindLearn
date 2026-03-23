@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import { Sparkles, Loader2, Save } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { ContextPanel } from './ContextPanel'
+import { useToastStore } from '../stores/toastStore'
 import type { Node } from '../types'
 
 interface NodeCardProps {
@@ -29,6 +30,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   const [customPrompt, setCustomPrompt] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
   const [showContextPanel, setShowContextPanel] = useState(false)
+  const { showToast } = useToastStore()
 
   useEffect(() => {
     if (data.content && data.content !== content) {
@@ -51,13 +53,9 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     const selection = window.getSelection()
     const selectedText = selection?.toString().trim()
 
-    console.log('Text selected:', selectedText)
-
     if (selectedText && selectedText.length > 0) {
       const range = selection?.getRangeAt(0)
       const rect = range?.getBoundingClientRect()
-
-      console.log('Selection rect:', rect)
 
       if (rect) {
         setSelectionMenu({
@@ -71,7 +69,8 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
 
   // Close selection menu on click outside
   useEffect(() => {
-    if (!selectionMenu) return
+    // ContextPanel 打开后由其自身处理关闭逻辑，避免全局捕获提前卸载面板
+    if (!selectionMenu || showContextPanel) return
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Element
@@ -87,7 +86,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     // Use capture phase to ensure we catch the event before other handlers
     document.addEventListener('mousedown', handleClickOutside, true)
     return () => document.removeEventListener('mousedown', handleClickOutside, true)
-  }, [selectionMenu])
+  }, [selectionMenu, showContextPanel])
 
   const handleGenerate = async () => {
     if (!content.trim()) return
@@ -121,7 +120,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   const handleContextExpand = () => {
     if (!selectionMenu) return
     if (!data.allNodes || data.allNodes.length === 0) {
-      alert('无法获取节点上下文，请重试')
+      showToast('无法获取节点上下文，请重试', 'error')
       return
     }
     setShowContextPanel(true)
@@ -305,12 +304,13 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
           currentNodeId={data.nodeId}
           allNodes={data.allNodes}
           onConfirm={(selectedNodeIds) => {
-            if (selectionMenu) {
-              data.onExpand(selectionMenu.text, selectedNodeIds)
-            }
+            const text = selectionMenu?.text
             setShowContextPanel(false)
             setSelectionMenu(null)
             window.getSelection()?.removeAllRanges()
+            if (text) {
+              data.onExpand(text, selectedNodeIds)
+            }
           }}
           onClose={() => {
             setShowContextPanel(false)

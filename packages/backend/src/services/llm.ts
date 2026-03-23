@@ -31,13 +31,18 @@ export async function generateWithContext(
   const model = process.env.GEMINI_MODEL || 'Gemini-3.1-Pro'
 
   // 构建带上下文的完整 prompt
-  const fullPrompt = `以下是之前的对话上下文，请基于这些内容回答用户的问题：
+  const fullPrompt = `你是一个知识图谱助手。以下是节点链（从根节点到当前父节点），最后一个节点是用户当前正在查看的内容：
 
 ${contextXml}
 
-用户的问题：${prompt}
+用户想要基于**最后一个节点**的内容进一步探索：${prompt}
 
-请基于上述上下文提供详细的回答。`
+要求：
+1. 重点关注最后一个节点的内容，这是用户当前的焦点
+2. 你的回答应该是对最后一个节点内容的延伸和深化
+3. 前面的节点提供背景脉络，帮助你理解整体主题
+4. 保持与最后一个节点的紧密关联
+5. 用 Markdown 格式回答`
 
   const response = await fetch(`${baseURL}/chat/completions`, {
     method: 'POST',

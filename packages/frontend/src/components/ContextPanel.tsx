@@ -57,8 +57,15 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <div className="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">选择上下文节点</h2>
@@ -122,7 +129,11 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
               取消
             </button>
             <button
-              onClick={handleConfirm}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                handleConfirm()
+              }}
               disabled={selectedIds.size === 0}
               className="px-4 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
