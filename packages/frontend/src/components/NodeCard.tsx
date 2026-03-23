@@ -4,6 +4,8 @@ import { Handle, Position } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
 import { Sparkles, Loader2, Save } from 'lucide-react'
 import { cn } from '../utils/cn'
+import { ContextPanel } from './ContextPanel'
+import type { Node } from '../types'
 
 interface NodeCardProps {
   data: {
@@ -11,7 +13,8 @@ interface NodeCardProps {
     isEditing?: boolean
     nodeId: string
     onGenerate: (content: string) => void
-    onExpand: (text: string) => void
+    onExpand: (text: string, selectedNodeIds?: string[]) => void
+    allNodes?: Node[]
   }
 }
 
@@ -25,6 +28,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   const [showPromptInput, setShowPromptInput] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
+  const [showContextPanel, setShowContextPanel] = useState(false)
 
   useEffect(() => {
     if (data.content && data.content !== content) {
@@ -112,6 +116,11 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     if (!selectionMenu) return
     setCustomPrompt(selectionMenu.text)
     setShowPromptInput(true)
+  }
+
+  const handleContextExpand = () => {
+    if (!selectionMenu) return
+    setShowContextPanel(true)
   }
 
   const handleSubmitCustomPrompt = async () => {
@@ -209,7 +218,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
       />
 
       {/* Selection Menu - rendered via Portal */}
-      {selectionMenu && !showPromptInput && createPortal(
+      {selectionMenu && !showPromptInput && !showContextPanel && createPortal(
         <div
           className="selection-menu fixed z-[10000] bg-white rounded-lg shadow-lg border border-border p-1 flex gap-1"
           style={{
@@ -229,6 +238,12 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             className="px-3 py-1.5 text-xs font-medium rounded hover:bg-accent transition-colors whitespace-nowrap"
           >
             针对性提问
+          </button>
+          <button
+            onClick={handleContextExpand}
+            className="px-3 py-1.5 text-xs font-medium rounded hover:bg-accent transition-colors whitespace-nowrap"
+          >
+            自定义上下文展开
           </button>
         </div>,
         document.body
@@ -277,6 +292,28 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             </button>
           </div>
         </div>,
+        document.body
+      )}
+
+      {/* Context Panel - rendered via Portal */}
+      {showContextPanel && selectionMenu && data.allNodes && createPortal(
+        <ContextPanel
+          currentNodeId={data.nodeId}
+          allNodes={data.allNodes}
+          onConfirm={(selectedNodeIds) => {
+            if (selectionMenu) {
+              data.onExpand(selectionMenu.text, selectedNodeIds)
+            }
+            setShowContextPanel(false)
+            setSelectionMenu(null)
+            window.getSelection()?.removeAllRanges()
+          }}
+          onClose={() => {
+            setShowContextPanel(false)
+            setSelectionMenu(null)
+            window.getSelection()?.removeAllRanges()
+          }}
+        />,
         document.body
       )}
     </div>

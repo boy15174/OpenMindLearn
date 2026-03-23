@@ -3,10 +3,13 @@ import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState,
 import type { Node as RFNode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { NodeCard } from './NodeCard'
-import { generateNode, expandNode } from '../services/api'
+import { Toolbar } from './Toolbar'
+import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
+import { useGraphStore } from '../stores/graphStore'
 import { Plus, X, Eye, Pencil, RefreshCw } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
+import type { Node } from '../types'
 
 const nodeTypes = { custom: NodeCard }
 
@@ -27,6 +30,14 @@ export function Canvas() {
   const [detailContent, setDetailContent] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const { screenToFlowPosition } = useReactFlow()
+  const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
+
+  // Monitor changes to set dirty flag
+  useEffect(() => {
+    if (nodes.length > 0 || edges.length > 0) {
+      setDirty(true)
+    }
+  }, [nodes, edges, setDirty])
 
   // Close context menu on any click
   useEffect(() => {
@@ -43,7 +54,7 @@ export function Canvas() {
     ))
   }, [setNodes])
 
-  const handleExpand = useCallback(async (text: string, parentId: string) => {
+  const handleExpand = useCallback(async (text: string, parentId: string, selectedNodeIds?: string[]) => {
     // Create a placeholder node immediately
     const newNodeId = `node-${Date.now()}`
     const parentNode = nodes.find(n => n.id === parentId)
@@ -59,7 +70,7 @@ export function Canvas() {
         nodeId: newNodeId,
         isGenerating: true,
         onGenerate: (c: string) => handleGenerate(newNodeId, c),
-        onExpand: (text: string) => handleExpand(text, newNodeId),
+        onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, newNodeId, selectedIds),
       }
     }
 
@@ -67,9 +78,18 @@ export function Canvas() {
     setNodes((nds) => [...nds, placeholderNode])
     setEdges((eds) => addEdge({ id: `e${parentId}-${newNodeId}`, source: parentId, target: newNodeId }, eds))
 
+    // Convert ReactFlow nodes to Node type for context
+    const allNodes: Node[] = nodes.map(n => ({
+      id: n.id,
+      content: n.data.content || '',
+      position: n.position,
+      parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
+      createdAt: new Date().toISOString()
+    }))
+
     // Call API and update node content
     try {
-      const result = await expandNode(text, parentId)
+      const result = await expandNode(text, parentId, allNodes, selectedNodeIds)
       setNodes((nds) => nds.map(n =>
         n.id === newNodeId ? { ...n, data: { ...n.data, content: result.content, isGenerating: false } } : n
       ))
@@ -79,7 +99,84 @@ export function Canvas() {
         n.id === newNodeId ? { ...n, data: { ...n.data, content: '生成失败，请重试', isGenerating: false } } : n
       ))
     }
-  }, [nodes, setNodes, setEdges, handleGenerate])
+  }, [nodes, edges, setNodes, setEdges, handleGenerate])
+
+  // File operations
+  const handleSave = async () => {
+    try {
+      const graphNodes: Node[] = nodes.map(n => ({
+        id: n.id,
+        content: n.data.content || '',
+        position: n.position,
+        parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
+        createdAt: new Date().toISOString()
+      }))
+
+      const result = await saveFile(graphNodes, edges, fileName)
+
+      // Trigger browser download
+      const link = document.createElement('a')
+      link.href = `data:application/zip;base64,${result.data}`
+      link.download = `${fileName}.oml`
+      link.click()
+
+      setDirty(false)
+      alert('文件保存成功！')
+    } catch (error) {
+      console.error('保存失败:', error)
+      alert('保存失败，请重试')
+    }
+  }
+
+  const handleLoad = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.oml'
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+
+      try {
+        const arrayBuffer = await file.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+
+        const result = await loadFile(base64)
+
+        // Update store
+        loadGraph({ nodes: result.nodes, name: result.name })
+
+        // Convert to ReactFlow format
+        const rfNodes = result.nodes.map((n: Node) => ({
+          id: n.id,
+          type: 'custom',
+          position: n.position,
+          data: {
+            content: n.content,
+            nodeId: n.id,
+            onGenerate: (c: string) => handleGenerate(n.id, c),
+            onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, n.id, selectedIds)
+          }
+        }))
+
+        setNodes(rfNodes)
+        setEdges(result.edges)
+        alert('文件加载成功！')
+      } catch (error) {
+        console.error('加载失败:', error)
+        alert('加载失败，请检查文件格式')
+      }
+    }
+    input.click()
+  }
+
+  const handleNew = () => {
+    if (nodes.length > 0 || edges.length > 0) {
+      if (!confirm('当前文件未保存，确定要新建吗？')) return
+    }
+    clearGraph()
+    setNodes([])
+    setEdges([])
+  }
 
   const createNode = useCallback((position: { x: number; y: number }) => {
     const nodeId = Date.now().toString()
@@ -92,11 +189,18 @@ export function Canvas() {
         isEditing: true,
         nodeId,
         onGenerate: (c: string) => handleGenerate(nodeId, c),
-        onExpand: (text: string) => handleExpand(text, nodeId),
+        onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, nodeId, selectedIds),
+        allNodes: nodes.map(n => ({
+          id: n.id,
+          content: n.data.content || '',
+          position: n.position,
+          parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
+          createdAt: new Date().toISOString()
+        }))
       }
     }
     setNodes((nds) => [...nds, newNode])
-  }, [setNodes, handleGenerate, handleExpand])
+  }, [setNodes, handleGenerate, handleExpand, nodes, edges])
 
   // Right-click on blank area
   const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
@@ -129,9 +233,14 @@ export function Canvas() {
   }, [setNodes])
 
   return (
-    <div className="w-screen h-screen flex bg-background">
-      {/* Canvas */}
-      <div className={cn('flex-1 transition-all duration-300', detailContent && 'flex-[2]')}>
+    <div className="w-screen h-screen flex flex-col bg-background">
+      {/* Toolbar */}
+      <Toolbar onSave={handleSave} onLoad={handleLoad} onNew={handleNew} />
+
+      {/* Canvas and Detail Panel */}
+      <div className="flex-1 flex">
+        {/* Canvas */}
+        <div className={cn('flex-1 transition-all duration-300', detailContent && 'flex-[2]')}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -183,27 +292,28 @@ export function Canvas() {
             )}
           </div>
         )}
-      </div>
+        </div>
 
-      {/* Detail Panel */}
-      {detailContent && (
-        <div className="w-[33%] bg-white border-l border-border flex flex-col shadow-lg">
-          <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
-            <span className="text-sm font-medium text-foreground">节点详情</span>
-            <button
-              onClick={() => setDetailContent(null)}
-              className="p-1 rounded-md hover:bg-accent transition-colors"
-            >
-              <X className="w-4 h-4 text-muted-foreground" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="prose prose-sm prose-slate max-w-none">
-              <ReactMarkdown>{detailContent}</ReactMarkdown>
+        {/* Detail Panel */}
+        {detailContent && (
+          <div className="w-[33%] bg-white border-l border-border flex flex-col shadow-lg">
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
+              <span className="text-sm font-medium text-foreground">节点详情</span>
+              <button
+                onClick={() => setDetailContent(null)}
+                className="p-1 rounded-md hover:bg-accent transition-colors"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="prose prose-sm prose-slate max-w-none">
+                <ReactMarkdown>{detailContent}</ReactMarkdown>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
