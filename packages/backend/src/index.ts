@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import { config } from 'dotenv'
 import { nodeRoutes } from './routes/nodes.js'
+import filesRoutes from './routes/files.js'
 
 config()
 
@@ -9,6 +10,7 @@ const fastify = Fastify({ logger: true })
 
 await fastify.register(cors)
 await fastify.register(nodeRoutes)
+await fastify.register(filesRoutes, { prefix: '/api/files' })
 
 const start = async () => {
   try {

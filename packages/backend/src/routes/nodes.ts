@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify'
-import { generateContent } from '../services/llm.js'
+import { generateContent, generateWithContext } from '../services/llm.js'
+import { buildContextChain, generateContextXml } from '../services/contextService.js'
+import { Node } from '../types/index.js'
 
 export async function nodeRoutes(fastify: FastifyInstance) {
   fastify.post('/api/nodes/generate', async (request, reply) => {
@@ -9,8 +11,37 @@ export async function nodeRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/api/nodes/expand', async (request, reply) => {
-    const { text, parentId } = request.body as { text: string; parentId: string }
-    const content = await generateContent(`请详细解释: ${text}`)
+    const { text, parentId, allNodes, selectedNodeIds } = request.body as {
+      text: string
+      parentId: string
+      allNodes?: Node[]
+      selectedNodeIds?: string[]
+    }
+
+    let content: string
+
+    // 如果提供了 allNodes，则使用上下文
+    if (allNodes && allNodes.length > 0) {
+      let contextNodes: Node[]
+
+      // 如果提供了 selectedNodeIds，使用手动选择的节点
+      if (selectedNodeIds && selectedNodeIds.length > 0) {
+        contextNodes = allNodes.filter(node => selectedNodeIds.includes(node.id))
+      } else {
+        // 否则自动回溯父节点链（最多 10 个）
+        contextNodes = buildContextChain(parentId, allNodes, 10)
+      }
+
+      // 生成 XML 格式上下文
+      const contextXml = generateContextXml(contextNodes)
+
+      // 使用带上下文的生成
+      content = await generateWithContext(`请详细解释: ${text}`, contextXml)
+    } else {
+      // 没有上下文，直接生成
+      content = await generateContent(`请详细解释: ${text}`)
+    }
+
     return { id: Date.now().toString(), content, parentId }
   })
 }
