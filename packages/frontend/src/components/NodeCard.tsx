@@ -120,6 +120,10 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
 
   const handleContextExpand = () => {
     if (!selectionMenu) return
+    if (!data.allNodes || data.allNodes.length === 0) {
+      alert('无法获取节点上下文，请重试')
+      return
+    }
     setShowContextPanel(true)
   }
 
