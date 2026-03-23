@@ -55,6 +55,15 @@ export function Canvas() {
   }, [setNodes])
 
   const handleExpand = useCallback(async (text: string, parentId: string, selectedNodeIds?: string[]) => {
+    // Convert ReactFlow nodes to Node type for context
+    const allNodes: Node[] = nodes.map(n => ({
+      id: n.id,
+      content: n.data.content || '',
+      position: n.position,
+      parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
+      createdAt: new Date().toISOString()
+    }))
+
     // Create a placeholder node immediately
     const newNodeId = `node-${Date.now()}`
     const parentNode = nodes.find(n => n.id === parentId)
@@ -71,6 +80,7 @@ export function Canvas() {
         isGenerating: true,
         onGenerate: (c: string) => handleGenerate(newNodeId, c),
         onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, newNodeId, selectedIds),
+        allNodes
       }
     }
 
@@ -78,25 +88,32 @@ export function Canvas() {
     setNodes((nds) => [...nds, placeholderNode])
     setEdges((eds) => addEdge({ id: `e${parentId}-${newNodeId}`, source: parentId, target: newNodeId }, eds))
 
-    // Convert ReactFlow nodes to Node type for context
-    const allNodes: Node[] = nodes.map(n => ({
-      id: n.id,
-      content: n.data.content || '',
-      position: n.position,
-      parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
-      createdAt: new Date().toISOString()
-    }))
-
     // Call API and update node content
     try {
       const result = await expandNode(text, parentId, allNodes, selectedNodeIds)
       setNodes((nds) => nds.map(n =>
-        n.id === newNodeId ? { ...n, data: { ...n.data, content: result.content, isGenerating: false } } : n
+        n.id === newNodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            content: result.content,
+            isGenerating: false,
+            allNodes
+          }
+        } : n
       ))
     } catch (error) {
       console.error('Failed to expand node:', error)
       setNodes((nds) => nds.map(n =>
-        n.id === newNodeId ? { ...n, data: { ...n.data, content: '生成失败，请重试', isGenerating: false } } : n
+        n.id === newNodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            content: '生成失败，请重试',
+            isGenerating: false,
+            allNodes
+          }
+        } : n
       ))
     }
   }, [nodes, edges, setNodes, setEdges, handleGenerate])
@@ -154,7 +171,8 @@ export function Canvas() {
             content: n.content,
             nodeId: n.id,
             onGenerate: (c: string) => handleGenerate(n.id, c),
-            onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, n.id, selectedIds)
+            onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, n.id, selectedIds),
+            allNodes: result.nodes
           }
         }))
 
