@@ -306,14 +306,15 @@ function generateStructureXml(graphData: GraphData): string {
         region: graphData.regions.map((region) => ({
           $: {
             id: region.id,
-            color: region.color
+            color: region.color,
+            x: region.x.toString(),
+            y: region.y.toString(),
+            width: region.width.toString(),
+            height: region.height.toString()
           },
           name: region.name,
           description: region.description,
-          createdAt: region.createdAt,
-          nodes: region.nodeIds.length > 0 ? {
-            node: region.nodeIds
-          } : undefined
+          createdAt: region.createdAt
         }))
       } : undefined,
       edges: graphData.edges.length > 0 ? {
@@ -368,11 +369,10 @@ async function parseStructureXml(xmlContent: string): Promise<{
       color: parseString(region.$?.color, '#c084fc'),
       description: parseString(region.description?.[0]),
       createdAt: parseString(region.createdAt?.[0], new Date().toISOString()),
-      nodeIds: Array.isArray(region.nodes?.[0]?.node)
-        ? region.nodes[0].node.map((id: unknown) => parseString(id)).filter(Boolean)
-        : region.nodes?.[0]?.node
-        ? [parseString(region.nodes[0].node)].filter(Boolean)
-        : []
+      x: parseNumber(region.$?.x, 0),
+      y: parseNumber(region.$?.y, 0),
+      width: Math.max(180, parseNumber(region.$?.width, 420)),
+      height: Math.max(120, parseNumber(region.$?.height, 260))
     })),
     edges: edgesRaw.map((edge: any) => ({
       id: parseString(edge.$?.id),

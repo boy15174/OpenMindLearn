@@ -14,7 +14,10 @@ export interface Region {
   name: string
   color: string
   description?: string
-  nodeIds: string[]
+  x: number
+  y: number
+  width: number
+  height: number
   createdAt: string
 }
 

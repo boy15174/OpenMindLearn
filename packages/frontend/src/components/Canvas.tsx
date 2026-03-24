@@ -19,6 +19,10 @@ const nodeTypes = { custom: NodeCard }
 const NODE_WIDTH = 380
 const NODE_HEIGHT = 300
 const REGION_PADDING = 24
+const REGION_DEFAULT_WIDTH = 420
+const REGION_DEFAULT_HEIGHT = 260
+const REGION_MIN_WIDTH = 180
+const REGION_MIN_HEIGHT = 120
 const MAX_NODE_VERSIONS = 3
 
 interface SourceHighlight extends SourceReference {
@@ -49,6 +53,15 @@ interface RegionBox {
   y: number
   width: number
   height: number
+}
+
+interface RegionDragState {
+  regionId: string
+  mode: 'move' | 'resize'
+  resizeHandle?: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w'
+  startPointer: { x: number; y: number }
+  startRegion: { x: number; y: number; width: number; height: number }
+  startNodePositions: Record<string, { x: number; y: number }>
 }
 
 interface MetaEditorState {
@@ -82,10 +95,116 @@ function normalizeNodeForRuntime(node: Node): Node {
 function normalizeRegionsForRuntime(regions?: Region[]): Region[] {
   return (regions || []).map((region) => ({
     ...region,
+    x: Number.isFinite(region.x) ? region.x : 0,
+    y: Number.isFinite(region.y) ? region.y : 0,
+    width: Math.max(REGION_MIN_WIDTH, Number.isFinite(region.width) ? region.width : REGION_DEFAULT_WIDTH),
+    height: Math.max(REGION_MIN_HEIGHT, Number.isFinite(region.height) ? region.height : REGION_DEFAULT_HEIGHT),
     createdAt: region.createdAt || new Date().toISOString(),
-    description: region.description || '',
-    nodeIds: region.nodeIds || []
+    description: region.description || ''
   }))
+}
+
+function pointInRegion(point: { x: number; y: number }, region: Pick<Region, 'x' | 'y' | 'width' | 'height'>): boolean {
+  return (
+    point.x >= region.x &&
+    point.x <= region.x + region.width &&
+    point.y >= region.y &&
+    point.y <= region.y + region.height
+  )
+}
+
+function resizeRegionFromHandle(
+  start: { x: number; y: number; width: number; height: number },
+  handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w',
+  dx: number,
+  dy: number
+): { x: number; y: number; width: number; height: number } {
+  const right = start.x + start.width
+  const bottom = start.y + start.height
+
+  if (handle === 'n') {
+    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
+    return { x: start.x, y: bottom - height, width: start.width, height }
+  }
+
+  if (handle === 'e') {
+    const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
+    return { x: start.x, y: start.y, width, height: start.height }
+  }
+
+  if (handle === 's') {
+    const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
+    return { x: start.x, y: start.y, width: start.width, height }
+  }
+
+  if (handle === 'w') {
+    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
+    return { x: right - width, y: start.y, width, height: start.height }
+  }
+
+  if (handle === 'nw') {
+    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
+    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
+    return { x: right - width, y: bottom - height, width, height }
+  }
+
+  if (handle === 'ne') {
+    const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
+    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
+    return { x: start.x, y: bottom - height, width, height }
+  }
+
+  if (handle === 'sw') {
+    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
+    const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
+    return { x: right - width, y: start.y, width, height }
+  }
+
+  const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
+  const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
+  return { x: start.x, y: start.y, width, height }
+}
+
+function inferRegionRectFromNodeIds(nodeIds: string[], nodes: any[]): { x: number; y: number; width: number; height: number } | null {
+  if (nodeIds.length === 0) return null
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const linkedNodes = nodeIds
+    .map((nodeId) => nodeMap.get(nodeId))
+    .filter((node): node is any => Boolean(node))
+
+  if (linkedNodes.length === 0) return null
+
+  const xs = linkedNodes.map((node) => node.position.x)
+  const ys = linkedNodes.map((node) => node.position.y)
+  const minX = Math.min(...xs)
+  const minY = Math.min(...ys)
+  const maxX = Math.max(...xs) + NODE_WIDTH
+  const maxY = Math.max(...ys) + NODE_HEIGHT
+
+  return {
+    x: minX - REGION_PADDING,
+    y: minY - REGION_PADDING,
+    width: maxX - minX + REGION_PADDING * 2,
+    height: maxY - minY + REGION_PADDING * 2
+  }
+}
+
+function normalizeRegionsWithNodeFallback(regions: Region[] | undefined, nodes: any[]): Region[] {
+  return (regions || []).map((item) => {
+    const raw = item as Region & { nodeIds?: string[] }
+    const hasGeometry = Number.isFinite(raw.x) && Number.isFinite(raw.y) && Number.isFinite(raw.width) && Number.isFinite(raw.height)
+    const inferred = hasGeometry ? null : inferRegionRectFromNodeIds(raw.nodeIds || [], nodes)
+
+    return {
+      ...item,
+      x: hasGeometry ? raw.x : inferred?.x ?? 0,
+      y: hasGeometry ? raw.y : inferred?.y ?? 0,
+      width: Math.max(REGION_MIN_WIDTH, hasGeometry ? raw.width : inferred?.width ?? REGION_DEFAULT_WIDTH),
+      height: Math.max(REGION_MIN_HEIGHT, hasGeometry ? raw.height : inferred?.height ?? REGION_DEFAULT_HEIGHT),
+      createdAt: item.createdAt || new Date().toISOString(),
+      description: item.description || ''
+    }
+  })
 }
 
 function parseTags(tagsText: string): string[] {
@@ -206,6 +325,8 @@ export function Canvas() {
   const [newRegionColor, setNewRegionColor] = useState('#22c55e')
   const [newRegionDescription, setNewRegionDescription] = useState('')
   const [manualRegionNodeIds, setManualRegionNodeIds] = useState('')
+  const [regionDrag, setRegionDrag] = useState<RegionDragState | null>(null)
+  const [regionTitleEdit, setRegionTitleEdit] = useState<{ regionId: string; draft: string } | null>(null)
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const canvasRef = useRef<HTMLDivElement>(null)
   const skipDirtyFlagRef = useRef(false)
@@ -499,35 +620,31 @@ export function Canvas() {
   }, [nodes])
 
   const regionBoxes = useMemo<RegionBox[]>(() => {
-    const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+    return normalizeRegionsForRuntime(regions).map((region) => ({
+      id: region.id,
+      name: region.name,
+      color: region.color,
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height
+    }))
+  }, [regions])
 
-    return regions
-      .map((region) => {
-        const linkedNodes = region.nodeIds
-          .map((nodeId) => nodeMap.get(nodeId))
-          .filter((node): node is any => Boolean(node))
-
-        if (linkedNodes.length === 0) return null
-
-        const xs = linkedNodes.map((node) => node.position.x)
-        const ys = linkedNodes.map((node) => node.position.y)
-        const minX = Math.min(...xs)
-        const minY = Math.min(...ys)
-        const maxX = Math.max(...xs) + NODE_WIDTH
-        const maxY = Math.max(...ys) + NODE_HEIGHT
-
-        return {
-          id: region.id,
-          name: region.name,
-          color: region.color,
-          x: minX - REGION_PADDING,
-          y: minY - REGION_PADDING,
-          width: maxX - minX + REGION_PADDING * 2,
-          height: maxY - minY + REGION_PADDING * 2
+  const regionCoveredNodeCount = useMemo(() => {
+    const map = new Map<string, number>()
+    regionBoxes.forEach((box) => {
+      const count = nodes.filter((node) => {
+        const center = {
+          x: node.position.x + NODE_WIDTH / 2,
+          y: node.position.y + NODE_HEIGHT / 2
         }
-      })
-      .filter((item): item is RegionBox => Boolean(item))
-  }, [nodes, regions])
+        return pointInRegion(center, box)
+      }).length
+      map.set(box.id, count)
+    })
+    return map
+  }, [nodes, regionBoxes])
 
   const focusSearchResult = useCallback((nextIndex: number) => {
     if (searchResults.length === 0) return
@@ -551,25 +668,20 @@ export function Canvas() {
       .filter(Boolean)
 
     const sourceIds = parsedManualIds.length > 0 ? parsedManualIds : selectedNodeIds
-    if (sourceIds.length === 0) {
-      showToast('请先选择节点，或输入节点 ID', 'error')
-      return
-    }
-
     const validNodeIdSet = new Set(nodes.map((node) => node.id))
     const validIds = Array.from(new Set(sourceIds)).filter((id) => validNodeIdSet.has(id))
-
-    if (validIds.length === 0) {
-      showToast('区域未匹配到有效节点', 'error')
-      return
-    }
+    const inferredRect = inferRegionRectFromNodeIds(validIds, nodes)
+    const center = getCanvasCenterFlowPosition()
 
     const region: Region = {
       id: `region-${Date.now()}`,
       name: newRegionName.trim() || `区域 ${regions.length + 1}`,
       color: newRegionColor,
       description: newRegionDescription.trim(),
-      nodeIds: validIds,
+      x: inferredRect?.x ?? center.x - REGION_DEFAULT_WIDTH / 2,
+      y: inferredRect?.y ?? center.y - REGION_DEFAULT_HEIGHT / 2,
+      width: inferredRect?.width ?? REGION_DEFAULT_WIDTH,
+      height: inferredRect?.height ?? REGION_DEFAULT_HEIGHT,
       createdAt: new Date().toISOString()
     }
 
@@ -578,15 +690,164 @@ export function Canvas() {
     setNewRegionDescription('')
     setManualRegionNodeIds('')
     showToast('区域已创建', 'success')
-  }, [manualRegionNodeIds, newRegionColor, newRegionDescription, newRegionName, nodes, regions.length, selectedNodeIds, showToast])
+  }, [getCanvasCenterFlowPosition, manualRegionNodeIds, newRegionColor, newRegionDescription, newRegionName, nodes, regions.length, selectedNodeIds, showToast])
 
   const handleUpdateRegion = useCallback((regionId: string, patch: Partial<Region>) => {
-    setRegions((prev) => prev.map((region) => (region.id === regionId ? { ...region, ...patch } : region)))
+    setRegions((prev) =>
+      prev.map((region) => {
+        if (region.id !== regionId) return region
+        const next = { ...region, ...patch }
+        return {
+          ...next,
+          x: Number.isFinite(next.x) ? next.x : region.x,
+          y: Number.isFinite(next.y) ? next.y : region.y,
+          width: Math.max(REGION_MIN_WIDTH, Number.isFinite(next.width) ? next.width : region.width),
+          height: Math.max(REGION_MIN_HEIGHT, Number.isFinite(next.height) ? next.height : region.height)
+        }
+      })
+    )
   }, [])
 
   const handleDeleteRegion = useCallback((regionId: string) => {
     setRegions((prev) => prev.filter((region) => region.id !== regionId))
   }, [])
+
+  const startRegionTitleEdit = useCallback((regionId: string, currentName: string) => {
+    setRegionDrag(null)
+    setRegionTitleEdit({
+      regionId,
+      draft: currentName
+    })
+  }, [])
+
+  const commitRegionTitleEdit = useCallback(() => {
+    if (!regionTitleEdit) return
+    const nextName = regionTitleEdit.draft.trim()
+    if (nextName) {
+      handleUpdateRegion(regionTitleEdit.regionId, { name: nextName })
+    }
+    setRegionTitleEdit(null)
+  }, [handleUpdateRegion, regionTitleEdit])
+
+  useEffect(() => {
+    if (!regionTitleEdit) return
+    const exists = regions.some((region) => region.id === regionTitleEdit.regionId)
+    if (!exists) setRegionTitleEdit(null)
+  }, [regionTitleEdit, regions])
+
+  const handleStartRegionDrag = useCallback((event: React.MouseEvent, box: RegionBox) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const startPointer = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY
+    })
+
+    const startNodePositions: Record<string, { x: number; y: number }> = {}
+    nodes.forEach((node) => {
+      const center = {
+        x: node.position.x + NODE_WIDTH / 2,
+        y: node.position.y + NODE_HEIGHT / 2
+      }
+      if (pointInRegion(center, box)) {
+        startNodePositions[node.id] = { ...node.position }
+      }
+    })
+
+    setRegionDrag({
+      regionId: box.id,
+      mode: 'move',
+      startPointer,
+      startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
+      startNodePositions
+    })
+  }, [nodes, screenToFlowPosition])
+
+  const handleStartRegionResize = useCallback(
+    (event: React.MouseEvent, box: RegionBox, handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w') => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      const startPointer = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY
+      })
+
+      setRegionDrag({
+        regionId: box.id,
+        mode: 'resize',
+        resizeHandle: handle,
+        startPointer,
+        startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
+        startNodePositions: {}
+      })
+    },
+    [screenToFlowPosition]
+  )
+
+  useEffect(() => {
+    if (!regionDrag) return
+
+    const onMouseMove = (event: MouseEvent) => {
+      const pointer = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY
+      })
+      const dx = pointer.x - regionDrag.startPointer.x
+      const dy = pointer.y - regionDrag.startPointer.y
+
+      if (regionDrag.mode === 'move') {
+        setRegions((prev) =>
+          prev.map((region) =>
+            region.id === regionDrag.regionId
+              ? { ...region, x: regionDrag.startRegion.x + dx, y: regionDrag.startRegion.y + dy }
+              : region
+          )
+        )
+
+        const movingNodeIds = new Set(Object.keys(regionDrag.startNodePositions))
+        if (movingNodeIds.size === 0) return
+
+        setNodes((nds) =>
+          nds.map((node) => {
+            const startPosition = regionDrag.startNodePositions[node.id]
+            if (!startPosition) return node
+            return {
+              ...node,
+              position: {
+                x: startPosition.x + dx,
+                y: startPosition.y + dy
+              }
+            }
+          })
+        )
+        return
+      }
+
+      if (regionDrag.mode === 'resize' && regionDrag.resizeHandle) {
+        const nextRegion = resizeRegionFromHandle(regionDrag.startRegion, regionDrag.resizeHandle, dx, dy)
+        setRegions((prev) =>
+          prev.map((region) =>
+            region.id === regionDrag.regionId
+              ? { ...region, ...nextRegion }
+              : region
+          )
+        )
+      }
+    }
+
+    const onMouseUp = () => {
+      setRegionDrag(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [regionDrag, screenToFlowPosition, setNodes])
 
   const handleSave = async () => {
     try {
@@ -634,7 +895,7 @@ export function Canvas() {
         const result = await loadFile(base64)
 
         const loadedNodes: Node[] = (result.nodes || []).map((node: Node) => normalizeNodeForRuntime(node))
-        const loadedRegions = normalizeRegionsForRuntime(result.regions)
+        const loadedRegions = normalizeRegionsWithNodeFallback(result.regions, loadedNodes)
 
         skipDirtyFlagRef.current = true
         loadGraph({ nodes: loadedNodes, name: result.name, regions: loadedRegions })
@@ -907,20 +1168,23 @@ export function Canvas() {
 
       <div className="flex-1 flex">
         <div ref={canvasRef} className={cn('flex-1 transition-all duration-300 relative', detailContent && 'flex-[2]')}>
-          <ReactFlow
-            nodes={renderedNodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            onPaneContextMenu={handlePaneContextMenu}
-            onNodeContextMenu={handleNodeContextMenu}
-            onMove={(_, nextViewport) => setViewport(nextViewport)}
-            fitView
-          >
-            <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
-            <Controls className="!shadow-md !border-border !rounded-lg" />
-          </ReactFlow>
+          <div className="absolute inset-0 z-20">
+            <ReactFlow
+              nodes={renderedNodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              nodeTypes={nodeTypes}
+              onPaneContextMenu={handlePaneContextMenu}
+              onNodeContextMenu={handleNodeContextMenu}
+              onMove={(_, nextViewport) => setViewport(nextViewport)}
+              panOnDrag={!regionDrag}
+              fitView
+            >
+              <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
+              <Controls className="!shadow-md !border-border !rounded-lg" />
+            </ReactFlow>
+          </div>
 
           <div className="absolute top-3 left-3 z-30 pointer-events-auto flex items-start gap-2">
             <div className="w-[360px] bg-white/95 border border-border rounded-lg shadow-md p-2">
@@ -980,29 +1244,139 @@ export function Canvas() {
           </div>
 
           {regionBoxes.length > 0 && (
-            <div className="absolute inset-0 z-10 pointer-events-none">
-              {regionBoxes.map((box) => (
-                <div
-                  key={box.id}
-                  className="absolute rounded-md"
-                  style={{
-                    left: box.x * viewport.zoom + viewport.x,
-                    top: box.y * viewport.zoom + viewport.y,
-                    width: box.width * viewport.zoom,
-                    height: box.height * viewport.zoom,
-                    border: `2px dashed ${box.color}`,
-                    backgroundColor: `${box.color}1a`
-                  }}
-                >
+            <>
+              <div className="absolute inset-0 z-[5] pointer-events-none">
+                {regionBoxes.map((box) => (
                   <div
-                    className="inline-block text-[11px] text-white px-2 py-0.5 rounded-br"
-                    style={{ backgroundColor: box.color }}
+                    key={`fill-${box.id}`}
+                    className={cn(
+                      'absolute rounded-md',
+                      regionDrag?.regionId === box.id && 'ring-1 ring-primary/40'
+                    )}
+                    style={{
+                      left: box.x * viewport.zoom + viewport.x,
+                      top: box.y * viewport.zoom + viewport.y,
+                      width: box.width * viewport.zoom,
+                      height: box.height * viewport.zoom,
+                      border: `1.5px dashed ${box.color}`,
+                      backgroundColor: `${box.color}12`
+                    }}
                   >
-                    {box.name}
+                    {regionTitleEdit?.regionId !== box.id && (
+                      <div
+                        className="absolute -top-6 left-1 max-w-[240px] h-5 px-2 inline-flex items-center gap-2 text-[11px] text-white rounded-md shadow-sm pointer-events-none select-none"
+                        style={{
+                          backgroundColor: `${box.color}d9`,
+                          border: `1px solid ${box.color}`
+                        }}
+                      >
+                        <span className="truncate">{box.name}</span>
+                        <span className="opacity-85 shrink-0">({regionCoveredNodeCount.get(box.id) || 0})</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+
+              <div className="absolute inset-0 z-30 pointer-events-none">
+                {regionBoxes.map((box) => (
+                  <div
+                    key={`interaction-${box.id}`}
+                    className="absolute pointer-events-none"
+                    style={{
+                      left: box.x * viewport.zoom + viewport.x,
+                      top: box.y * viewport.zoom + viewport.y,
+                      width: box.width * viewport.zoom,
+                      height: box.height * viewport.zoom
+                    }}
+                  >
+                    <div
+                      className={cn(
+                        'absolute -top-6 left-1 max-w-[240px] h-5 px-2 inline-flex items-center gap-2 text-[11px] pointer-events-auto select-none rounded-md',
+                        regionTitleEdit?.regionId === box.id ? 'cursor-text' : 'cursor-move'
+                      )}
+                      onMouseDown={(event) => {
+                        if (regionTitleEdit?.regionId === box.id) return
+                        handleStartRegionDrag(event, box)
+                      }}
+                      onDoubleClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        startRegionTitleEdit(box.id, box.name)
+                      }}
+                      style={{ backgroundColor: 'transparent', border: '1px solid transparent' }}
+                    >
+                      {regionTitleEdit?.regionId === box.id ? (
+                        <input
+                          autoFocus
+                          value={regionTitleEdit.draft}
+                          onChange={(event) =>
+                            setRegionTitleEdit((prev) =>
+                              prev
+                                ? { ...prev, draft: event.target.value }
+                                : prev
+                            )
+                          }
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          onBlur={commitRegionTitleEdit}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              commitRegionTitleEdit()
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              setRegionTitleEdit(null)
+                            }
+                          }}
+                          className="flex-1 h-4 px-1 rounded-sm bg-white/95 text-[11px] text-foreground outline-none"
+                        />
+                      ) : (
+                        <span className="truncate opacity-0">{box.name}</span>
+                      )}
+                      <span className={cn('shrink-0', regionTitleEdit?.regionId === box.id ? 'opacity-85 text-white' : 'opacity-0')}>
+                        ({regionCoveredNodeCount.get(box.id) || 0})
+                      </span>
+                    </div>
+
+                    <div
+                      className="absolute top-0 left-3 right-3 h-4 -translate-y-2 pointer-events-auto cursor-ns-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'n')}
+                    />
+                    <div
+                      className="absolute bottom-0 left-3 right-3 h-4 translate-y-2 pointer-events-auto cursor-ns-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 's')}
+                    />
+                    <div
+                      className="absolute left-0 top-3 bottom-3 w-4 -translate-x-2 pointer-events-auto cursor-ew-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'w')}
+                    />
+                    <div
+                      className="absolute right-0 top-3 bottom-3 w-4 translate-x-2 pointer-events-auto cursor-ew-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'e')}
+                    />
+
+                    <div
+                      className="absolute -left-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'nw')}
+                    />
+                    <div
+                      className="absolute -right-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'ne')}
+                    />
+                    <div
+                      className="absolute -left-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'sw')}
+                    />
+                    <div
+                      className="absolute -right-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(event) => handleStartRegionResize(event, box, 'se')}
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
           )}
 
           {showRegionPanel && (
@@ -1045,10 +1419,10 @@ export function Canvas() {
                   onChange={(e) => setManualRegionNodeIds(e.target.value)}
                   rows={2}
                   className="w-full px-2 py-1.5 text-xs rounded border border-border bg-white resize-none"
-                  placeholder="节点 ID（逗号分隔，可选；留空则使用当前选中节点）"
+                  placeholder="初始化参考节点 ID（可选，逗号分隔；仅用于创建时计算区域大小）"
                 />
                 <div className="text-xs text-muted-foreground">
-                  当前选中节点：{selectedNodeIds.length}
+                  当前选中节点：{selectedNodeIds.length}（留空时会以选中节点初始化区域）
                 </div>
                 <button
                   onClick={handleCreateRegion}
@@ -1077,13 +1451,50 @@ export function Canvas() {
                         onChange={(e) => handleUpdateRegion(region.id, { color: e.target.value })}
                         className="w-10 h-8 p-0 border border-border rounded"
                       />
+                      <div className="flex-1 text-xs text-muted-foreground">
+                        覆盖节点：{regionCoveredNodeCount.get(region.id) || 0}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
                       <input
-                        value={(region.nodeIds || []).join(', ')}
-                        onChange={(e) => handleUpdateRegion(region.id, {
-                          nodeIds: e.target.value.split(/[,，\n]/g).map((item) => item.trim()).filter(Boolean)
-                        })}
-                        className="flex-1 px-2 py-1 text-xs rounded border border-border"
-                        placeholder="关联节点 ID"
+                        type="number"
+                        value={Math.round(region.x)}
+                        onChange={(e) => {
+                          const value = Number(e.target.value)
+                          if (Number.isFinite(value)) handleUpdateRegion(region.id, { x: value })
+                        }}
+                        className="w-full px-2 py-1 text-xs rounded border border-border"
+                        placeholder="X"
+                      />
+                      <input
+                        type="number"
+                        value={Math.round(region.y)}
+                        onChange={(e) => {
+                          const value = Number(e.target.value)
+                          if (Number.isFinite(value)) handleUpdateRegion(region.id, { y: value })
+                        }}
+                        className="w-full px-2 py-1 text-xs rounded border border-border"
+                        placeholder="Y"
+                      />
+                      <input
+                        type="number"
+                        value={Math.round(region.width)}
+                        onChange={(e) => {
+                          const value = Number(e.target.value)
+                          if (Number.isFinite(value)) handleUpdateRegion(region.id, { width: value })
+                        }}
+                        className="w-full px-2 py-1 text-xs rounded border border-border"
+                        placeholder="宽度"
+                      />
+                      <input
+                        type="number"
+                        value={Math.round(region.height)}
+                        onChange={(e) => {
+                          const value = Number(e.target.value)
+                          if (Number.isFinite(value)) handleUpdateRegion(region.id, { height: value })
+                        }}
+                        className="w-full px-2 py-1 text-xs rounded border border-border"
+                        placeholder="高度"
                       />
                     </div>
                     <textarea
