@@ -17,8 +17,10 @@ import type { Node, SourceReference, Region, NodeVersion } from '../types'
 import { calculateChildNodePosition, calculateInitialNodePosition } from '../utils/nodePosition'
 
 const nodeTypes = { custom: NodeCard }
-const NODE_WIDTH = 380
-const NODE_HEIGHT = 300
+const NODE_DEFAULT_WIDTH = 380
+const NODE_DEFAULT_HEIGHT = 300
+const NODE_MIN_WIDTH = 280
+const NODE_MIN_HEIGHT = 200
 const REGION_PADDING = 24
 const REGION_DEFAULT_WIDTH = 420
 const REGION_DEFAULT_HEIGHT = 260
@@ -82,9 +84,42 @@ interface DiffLine {
   text: string
 }
 
+function parseNodeDimension(value: unknown, fallback: number, minimum: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(minimum, numeric)
+}
+
+function getNodeWidth(node: any): number {
+  return parseNodeDimension(
+    node?.width ?? node?.data?.width ?? node?.style?.width,
+    NODE_DEFAULT_WIDTH,
+    NODE_MIN_WIDTH
+  )
+}
+
+function getNodeHeight(node: any): number {
+  return parseNodeDimension(
+    node?.height ?? node?.data?.height ?? node?.style?.height,
+    NODE_DEFAULT_HEIGHT,
+    NODE_MIN_HEIGHT
+  )
+}
+
+function toPlacementNode(node: any): { id: string; position: { x: number; y: number }; width: number; height: number } {
+  return {
+    id: node.id,
+    position: node.position,
+    width: getNodeWidth(node),
+    height: getNodeHeight(node)
+  }
+}
+
 function normalizeNodeForRuntime(node: Node): Node {
   return {
     ...node,
+    width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+    height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
     createdAt: node.createdAt || new Date().toISOString(),
     updatedAt: node.updatedAt || node.createdAt || new Date().toISOString(),
     tags: node.tags || [],
@@ -179,8 +214,8 @@ function inferRegionRectFromNodeIds(nodeIds: string[], nodes: any[]): { x: numbe
   const ys = linkedNodes.map((node) => node.position.y)
   const minX = Math.min(...xs)
   const minY = Math.min(...ys)
-  const maxX = Math.max(...xs) + NODE_WIDTH
-  const maxY = Math.max(...ys) + NODE_HEIGHT
+  const maxX = Math.max(...linkedNodes.map((node) => node.position.x + getNodeWidth(node)))
+  const maxY = Math.max(...linkedNodes.map((node) => node.position.y + getNodeHeight(node)))
 
   return {
     x: minX - REGION_PADDING,
@@ -232,6 +267,8 @@ function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
     content: n.data.content || '',
     question: n.data.question || '',
     position: n.position,
+    width: getNodeWidth(n),
+    height: getNodeHeight(n),
     parentIds: rfEdges.filter((e) => e.target === n.id).map((e) => e.source),
     createdAt: n.data.createdAt || now,
     updatedAt: n.data.updatedAt || n.data.createdAt || now,
@@ -447,11 +484,21 @@ export function Canvas() {
     const placeholderNode = {
       id: newNodeId,
       type: 'custom',
-      position: calculateChildNodePosition(parentNode, currentNodes),
+      position: calculateChildNodePosition(
+        parentNode ? toPlacementNode(parentNode) : undefined,
+        currentNodes.map(toPlacementNode),
+        { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
+      ),
+      style: {
+        width: NODE_DEFAULT_WIDTH,
+        height: NODE_DEFAULT_HEIGHT
+      },
       data: {
         content: '生成中...',
         question: text,
         nodeId: newNodeId,
+        width: NODE_DEFAULT_WIDTH,
+        height: NODE_DEFAULT_HEIGHT,
         isGenerating: true,
         createdAt: now,
         updatedAt: now,
@@ -547,11 +594,17 @@ export function Canvas() {
       id: nodeId,
       type: 'custom',
       position,
+      style: {
+        width: NODE_DEFAULT_WIDTH,
+        height: NODE_DEFAULT_HEIGHT
+      },
       data: {
         content,
         question: question || '',
         isEditing,
         nodeId,
+        width: NODE_DEFAULT_WIDTH,
+        height: NODE_DEFAULT_HEIGHT,
         createdAt: now,
         updatedAt: now,
         tags: [] as string[],
@@ -574,7 +627,11 @@ export function Canvas() {
 
   const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string) => {
     const center = getCanvasCenterFlowPosition()
-    const position = calculateInitialNodePosition(getNodes(), center)
+    const position = calculateInitialNodePosition(
+      getNodes().map(toPlacementNode),
+      center,
+      { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
+    )
     createNodeAtPosition(position, content, isEditing, question)
   }, [createNodeAtPosition, getCanvasCenterFlowPosition, getNodes])
 
@@ -646,9 +703,11 @@ export function Canvas() {
     const map = new Map<string, number>()
     regionBoxes.forEach((box) => {
       const count = nodes.filter((node) => {
+        const width = getNodeWidth(node)
+        const height = getNodeHeight(node)
         const center = {
-          x: node.position.x + NODE_WIDTH / 2,
-          y: node.position.y + NODE_HEIGHT / 2
+          x: node.position.x + width / 2,
+          y: node.position.y + height / 2
         }
         return pointInRegion(center, box)
       }).length
@@ -666,7 +725,7 @@ export function Canvas() {
     const targetNode = nodes.find((node) => node.id === targetNodeId)
     if (!targetNode) return
 
-    setCenter(targetNode.position.x + NODE_WIDTH / 2, targetNode.position.y + NODE_HEIGHT / 2, {
+    setCenter(targetNode.position.x + getNodeWidth(targetNode) / 2, targetNode.position.y + getNodeHeight(targetNode) / 2, {
       zoom: Math.max(viewport.zoom, 0.9),
       duration: 280
     })
@@ -757,9 +816,11 @@ export function Canvas() {
 
     const startNodePositions: Record<string, { x: number; y: number }> = {}
     nodes.forEach((node) => {
+      const width = getNodeWidth(node)
+      const height = getNodeHeight(node)
       const center = {
-        x: node.position.x + NODE_WIDTH / 2,
-        y: node.position.y + NODE_HEIGHT / 2
+        x: node.position.x + width / 2,
+        y: node.position.y + height / 2
       }
       if (pointInRegion(center, box)) {
         startNodePositions[node.id] = { ...node.position }
@@ -867,6 +928,8 @@ export function Canvas() {
         content: node.data.content || '',
         question: node.data.question || '',
         position: node.position,
+        width: getNodeWidth(node),
+        height: getNodeHeight(node),
         parentIds: edges.filter((edge) => edge.target === node.id).map((edge) => edge.source),
         createdAt: node.data.createdAt || new Date().toISOString(),
         updatedAt: node.data.updatedAt,
@@ -915,10 +978,16 @@ export function Canvas() {
           id: node.id,
           type: 'custom',
           position: node.position,
+          style: {
+            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT)
+          },
           data: {
             content: node.content,
             question: node.question || '',
             nodeId: node.id,
+            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
             createdAt: node.createdAt,
             updatedAt: node.updatedAt,
             tags: node.tags || [],

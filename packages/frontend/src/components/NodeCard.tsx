@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Handle, Position } from '@xyflow/react'
+import { Handle, Position, NodeResizer } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Sparkles, Loader2, Save } from 'lucide-react'
@@ -14,6 +14,9 @@ import type { ExpandMode } from '../stores/settingsStore'
 interface SourceHighlight extends SourceReference {
   color: string
 }
+
+const NODE_MIN_WIDTH = 280
+const NODE_MIN_HEIGHT = 200
 
 interface SelectionMenuState {
   x: number
@@ -111,25 +114,28 @@ function applySourceHighlightByRanges(container: HTMLElement, highlights: Source
   })
 }
 
-interface NodeCardProps {
-  data: {
-    content: string
-    isEditing?: boolean
-    nodeId: string
-    tags?: string[]
-    note?: string
-    searchMatched?: boolean
-    searchActive?: boolean
-    onGenerate: (content: string) => void
-    onSaveContent: (content: string) => void
-    onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) => void
-    allNodes?: Node[]
-    expansionColor?: string
-    sourceHighlights?: SourceHighlight[]
-  }
+interface NodeCardData {
+  content: string
+  isEditing?: boolean
+  nodeId: string
+  tags?: string[]
+  note?: string
+  searchMatched?: boolean
+  searchActive?: boolean
+  onGenerate: (content: string) => void
+  onSaveContent: (content: string) => void
+  onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) => void
+  allNodes?: Node[]
+  expansionColor?: string
+  sourceHighlights?: SourceHighlight[]
 }
 
-export const NodeCard = memo(({ data }: NodeCardProps) => {
+interface NodeCardProps {
+  data: NodeCardData
+  selected?: boolean
+}
+
+export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   const [isEditing, setIsEditing] = useState(data.isEditing || false)
   const [content, setContent] = useState(data.content)
   const [loading, setLoading] = useState(false)
@@ -285,7 +291,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     <div
       className={cn(
         'rounded-lg border bg-white shadow-sm transition-all',
-        'w-[380px] relative group',
+        'w-full h-full min-h-0 relative group flex flex-col',
         data.searchMatched && 'ring-2 ring-amber-400/80 shadow-md',
         data.searchActive && 'ring-2 ring-amber-500 shadow-lg',
         isEditing && 'ring-1 ring-primary/40 shadow-md'
@@ -295,6 +301,18 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
         borderWidth: data.expansionColor ? '2px' : undefined
       }}
     >
+      <NodeResizer
+        minWidth={NODE_MIN_WIDTH}
+        minHeight={NODE_MIN_HEIGHT}
+        shouldResize={(_, params) => (
+          params.width >= NODE_MIN_WIDTH &&
+          params.height >= NODE_MIN_HEIGHT
+        )}
+        isVisible={Boolean(selected)}
+        lineClassName="!border-primary/35"
+        handleClassName="!w-2.5 !h-2.5 !rounded-sm !bg-white !border !border-primary/55"
+      />
+
       <Handle
         type="target"
         position={Position.Top}
@@ -302,7 +320,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
       />
 
       {/* Content Area */}
-      <div className="p-3">
+      <div className="p-3 flex-1 min-h-0">
         {!isEditing && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {(data.tags || []).map((tag) => (
@@ -322,20 +340,20 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            rows={8}
+            rows={10}
             className={cn(
-              'w-full p-2 text-sm rounded border border-border/60 bg-background',
+              'w-full h-full min-h-[180px] p-2 text-sm rounded border border-border/60 bg-background',
               'resize-none outline-none focus:border-primary/40',
               'placeholder:text-muted-foreground/50 nowheel nodrag'
             )}
             placeholder="输入内容或问题..."
           />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 h-full min-h-0 flex flex-col">
             <div
               ref={contentRef}
               onMouseUp={handleTextSelection}
-              className="prose prose-sm prose-slate max-h-[220px] overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text
+              className="prose prose-sm prose-slate max-w-none flex-1 min-h-0 overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text
                 prose-p:text-[13px] prose-li:text-[13px] prose-blockquote:text-[13px]
                 prose-headings:my-2 prose-headings:font-semibold
                 prose-h1:text-[16px] prose-h2:text-[15px] prose-h3:text-[14px] prose-h4:text-[13px]
@@ -344,7 +362,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '_空节点_'}</ReactMarkdown>
             </div>
             {(data.note || '').trim() && (
-              <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 border border-border/60 line-clamp-3">
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 border border-border/60 line-clamp-3 shrink-0">
                 {data.note}
               </div>
             )}

@@ -1,6 +1,8 @@
 interface PositionedNode {
   id: string
   position: { x: number; y: number }
+  width?: number
+  height?: number
 }
 
 interface NodePlacementOptions {
@@ -29,7 +31,7 @@ function mergeOptions(overrides?: NodePlacementOptions): Required<NodePlacementO
 
 function intersects(
   a: { x: number; y: number },
-  b: { x: number; y: number },
+  b: PositionedNode,
   options: Required<NodePlacementOptions>
 ): boolean {
   const aLeft = a.x - options.collisionPadding
@@ -37,10 +39,12 @@ function intersects(
   const aRight = a.x + options.nodeWidth + options.collisionPadding
   const aBottom = a.y + options.nodeHeight + options.collisionPadding
 
-  const bLeft = b.x - options.collisionPadding
-  const bTop = b.y - options.collisionPadding
-  const bRight = b.x + options.nodeWidth + options.collisionPadding
-  const bBottom = b.y + options.nodeHeight + options.collisionPadding
+  const bWidth = Number.isFinite(b.width) ? Number(b.width) : options.nodeWidth
+  const bHeight = Number.isFinite(b.height) ? Number(b.height) : options.nodeHeight
+  const bLeft = b.position.x - options.collisionPadding
+  const bTop = b.position.y - options.collisionPadding
+  const bRight = b.position.x + bWidth + options.collisionPadding
+  const bBottom = b.position.y + bHeight + options.collisionPadding
 
   return aLeft < bRight && aRight > bLeft && aTop < bBottom && aBottom > bTop
 }
@@ -67,7 +71,7 @@ function findAvailablePosition(
     for (const column of columnOrder) {
       const x = anchor.x + column * columnStep
       const candidate = { x, y }
-      const hasCollision = nodes.some((node) => intersects(candidate, node.position, options))
+      const hasCollision = nodes.some((node) => intersects(candidate, node, options))
       if (!hasCollision) return candidate
     }
   }
@@ -101,6 +105,7 @@ export function calculateChildNodePosition(
   if (!parentNode) return { x: 0, y: 0 }
 
   const options = mergeOptions(overrides)
-  const baseY = parentNode.position.y + options.nodeHeight + options.verticalGap
+  const parentHeight = Number.isFinite(parentNode.height) ? Number(parentNode.height) : options.nodeHeight
+  const baseY = parentNode.position.y + parentHeight + options.verticalGap
   return findAvailablePosition({ x: parentNode.position.x, y: baseY }, nodes, options)
 }

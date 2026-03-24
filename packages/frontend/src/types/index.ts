@@ -26,6 +26,8 @@ export interface Node {
   content: string
   question?: string
   position: { x: number; y: number }
+  width?: number
+  height?: number
   parentIds: string[]
   createdAt: string
   updatedAt?: string

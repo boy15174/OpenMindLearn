@@ -29,6 +29,7 @@ interface NodeDescriptor {
   contentFile: string
   question?: string
   position: { x: number; y: number }
+  size?: { width: number; height: number }
   parentIds: string[]
   createdAt: string
   updatedAt?: string
@@ -38,6 +39,11 @@ interface NodeDescriptor {
   expansionColor?: string
   sourceRef?: SourceReference
 }
+
+const NODE_DEFAULT_WIDTH = 380
+const NODE_DEFAULT_HEIGHT = 300
+const NODE_MIN_WIDTH = 280
+const NODE_MIN_HEIGHT = 200
 
 function parseString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -88,6 +94,11 @@ function normalizeSourceRef(value: unknown): SourceReference | undefined {
     rangeStart: parseNumber(source.rangeStart, 0),
     rangeEnd: parseNumber(source.rangeEnd, 0)
   }
+}
+
+function parseNodeSize(value: unknown, fallback: number, minimum: number): number {
+  const parsed = parseNumber(value, fallback)
+  return Math.max(minimum, parsed)
 }
 
 function buildEdgesFromNodeParents(nodes: Node[]): Edge[] {
@@ -156,6 +167,10 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
           x: node.position?.x ?? 0,
           y: node.position?.y ?? 0
         },
+        size: {
+          width: parseNodeSize(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+          height: parseNodeSize(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT)
+        },
         parentIds: node.parentIds || [],
         createdAt: node.createdAt || new Date().toISOString(),
         updatedAt: node.updatedAt,
@@ -220,6 +235,7 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
       const descriptor = descriptorRaw as Partial<NodeDescriptor>
       const nodeId = parseString(descriptor.id, nodeIdFromPath) || nodeIdFromPath
       const contentFile = parseString(descriptor.contentFile, 'current.md')
+      const rawSize = descriptor.size || {}
 
       const content = await readRequiredFile(
         zip,
@@ -264,6 +280,8 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
           x: parseNumber((rawPosition as any).x, 0),
           y: parseNumber((rawPosition as any).y, 0)
         },
+        width: parseNodeSize((rawSize as any).width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+        height: parseNodeSize((rawSize as any).height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
         parentIds,
         createdAt: parseString(descriptor.createdAt, new Date().toISOString()),
         updatedAt: parseString(descriptor.updatedAt) || undefined,
