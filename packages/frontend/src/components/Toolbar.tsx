@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { useGraphStore } from '../stores/graphStore'
-import { FileText, Save, FolderOpen, FilePlus, Settings } from 'lucide-react'
+import { FileText, Save, FolderOpen, FilePlus, Settings, Eye, GraduationCap } from 'lucide-react'
 import { SettingsDialog } from './SettingsDialog'
+
+type CanvasMode = 'learn' | 'view'
 
 interface ToolbarProps {
   onSave: () => void
   onLoad: () => void
   onNew: () => void
+  mode: CanvasMode
+  onModeChange: (mode: CanvasMode) => void
 }
 
-export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
+export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarProps) {
   const { fileName, isDirty, setFileName } = useGraphStore()
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(fileName)
@@ -39,7 +43,7 @@ export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
   }
 
   return (
-    <div className="h-14 border-b bg-white flex items-center justify-between px-4">
+    <div className="h-14 border-b bg-white relative flex items-center justify-between px-4">
       {/* 左侧：文件名和状态 */}
       <div className="flex items-center gap-2">
         <FileText className="w-5 h-5 text-gray-500" />
@@ -64,6 +68,33 @@ export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
         {isDirty && (
           <span className="text-gray-400 text-sm">• 未保存</span>
         )}
+      </div>
+
+      <div className="absolute left-1/2 -translate-x-1/2 flex items-center p-1 rounded-lg border border-border bg-slate-50 gap-1">
+        <button
+          onClick={() => onModeChange('learn')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+            mode === 'learn'
+              ? 'bg-white shadow-sm text-foreground border border-border'
+              : 'text-muted-foreground hover:text-foreground hover:bg-white/60'
+          }`}
+          title="学习模式：可编辑和生成"
+        >
+          <GraduationCap className="w-4 h-4" />
+          学习模式
+        </button>
+        <button
+          onClick={() => onModeChange('view')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+            mode === 'view'
+              ? 'bg-white shadow-sm text-foreground border border-border'
+              : 'text-muted-foreground hover:text-foreground hover:bg-white/60'
+          }`}
+          title="查看模式：只读画布，点击节点看详情"
+        >
+          <Eye className="w-4 h-4" />
+          查看模式
+        </button>
       </div>
 
       {/* 右侧：操作按钮 */}

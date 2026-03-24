@@ -117,6 +117,7 @@ function applySourceHighlightByRanges(container: HTMLElement, highlights: Source
 interface NodeCardData {
   content: string
   isEditing?: boolean
+  mode?: 'learn' | 'view'
   nodeId: string
   tags?: string[]
   note?: string
@@ -136,6 +137,7 @@ interface NodeCardProps {
 }
 
 export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
+  const isReadOnly = data.mode === 'view'
   const [isEditing, setIsEditing] = useState(data.isEditing || false)
   const [content, setContent] = useState(data.content)
   const [loading, setLoading] = useState(false)
@@ -155,8 +157,17 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   }, [data.content])
 
   useEffect(() => {
-    setIsEditing(Boolean(data.isEditing))
-  }, [data.isEditing])
+    setIsEditing(!isReadOnly && Boolean(data.isEditing))
+  }, [data.isEditing, isReadOnly])
+
+  useEffect(() => {
+    if (isReadOnly) {
+      setIsEditing(false)
+      setSelectionMenu(null)
+      setShowPromptInput(false)
+      setShowContextPanel(false)
+    }
+  }, [isReadOnly])
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -184,7 +195,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
 
   // Handle text selection in preview mode
   const handleTextSelection = () => {
-    if (isEditing || !contentRef.current) return
+    if (isReadOnly || isEditing || !contentRef.current) return
 
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
@@ -308,7 +319,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
           params.width >= NODE_MIN_WIDTH &&
           params.height >= NODE_MIN_HEIGHT
         )}
-        isVisible={Boolean(selected)}
+        isVisible={Boolean(selected) && !isReadOnly}
         lineClassName="!border-primary/35"
         handleClassName="!w-2.5 !h-2.5 !rounded-sm !bg-white !border !border-primary/55"
       />
@@ -371,7 +382,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
       </div>
 
       {/* Action Bar - only show when editing */}
-      {isEditing && (
+      {isEditing && !isReadOnly && (
         <div className="flex items-center justify-end gap-1.5 px-2 py-1.5 bg-secondary/20 border-t">
           <button
             onClick={handleSave}

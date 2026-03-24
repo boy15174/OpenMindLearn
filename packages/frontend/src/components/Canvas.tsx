@@ -27,6 +27,7 @@ const REGION_DEFAULT_HEIGHT = 260
 const REGION_MIN_WIDTH = 180
 const REGION_MIN_HEIGHT = 120
 const MAX_NODE_VERSIONS = 3
+type CanvasMode = 'learn' | 'view'
 
 interface SourceHighlight extends SourceReference {
   color: string
@@ -77,6 +78,12 @@ interface VersionDialogState {
   nodeId: string
   versions: NodeVersion[]
   currentContent: string
+}
+
+interface DetailPanelState {
+  nodeId: string
+  content: string
+  question: string
 }
 
 interface DiffLine {
@@ -349,7 +356,9 @@ export function Canvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<any>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<any>([])
   const [regions, setRegions] = useState<Region[]>([])
-  const [detailContent, setDetailContent] = useState<string | null>(null)
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>('learn')
+  const [detailPanel, setDetailPanel] = useState<DetailPanelState | null>(null)
+  const [detailFontSize, setDetailFontSize] = useState(15)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [initialInput, setInitialInput] = useState('')
   const [initialGenerating, setInitialGenerating] = useState(false)
@@ -406,6 +415,40 @@ export function Canvas() {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [contextMenu])
+
+  useEffect(() => {
+    setContextMenu(null)
+    setRegionDrag(null)
+    setRegionTitleEdit(null)
+    if (canvasMode === 'view') {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.data?.isEditing
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  isEditing: false
+                }
+              }
+            : node
+        )
+      )
+      setShowRegionPanel(false)
+      setMetaEditor(null)
+      setVersionDialog(null)
+    }
+  }, [canvasMode, setNodes])
+
+  const openNodeDetailById = useCallback((nodeId: string) => {
+    const node = nodes.find((item) => item.id === nodeId)
+    if (!node) return
+    setDetailPanel({
+      nodeId,
+      content: String(node.data.content || ''),
+      question: String(node.data.question || '')
+    })
+  }, [nodes])
 
   const getCanvasCenterFlowPosition = useCallback(() => {
     const rect = canvasRef.current?.getBoundingClientRect()
@@ -677,11 +720,12 @@ export function Canvas() {
       ...node,
       data: {
         ...node.data,
+        mode: canvasMode,
         searchMatched: highlightedNodeSet.has(node.id),
         searchActive: activeSearchNodeId === node.id
       }
     }))
-  }, [nodes, highlightedNodeSet, activeSearchNodeId])
+  }, [nodes, highlightedNodeSet, activeSearchNodeId, canvasMode])
 
   const selectedNodeIds = useMemo(() => {
     return nodes.filter((node) => node.selected).map((node) => node.id)
@@ -806,6 +850,7 @@ export function Canvas() {
   }, [regionTitleEdit, regions])
 
   const handleStartRegionDrag = useCallback((event: React.MouseEvent, box: RegionBox) => {
+    if (canvasMode !== 'learn') return
     event.preventDefault()
     event.stopPropagation()
 
@@ -834,10 +879,11 @@ export function Canvas() {
       startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
       startNodePositions
     })
-  }, [nodes, screenToFlowPosition])
+  }, [canvasMode, nodes, screenToFlowPosition])
 
   const handleStartRegionResize = useCallback(
     (event: React.MouseEvent, box: RegionBox, handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w') => {
+      if (canvasMode !== 'learn') return
       event.preventDefault()
       event.stopPropagation()
 
@@ -855,7 +901,7 @@ export function Canvas() {
         startNodePositions: {}
       })
     },
-    [screenToFlowPosition]
+    [canvasMode, screenToFlowPosition]
   )
 
   useEffect(() => {
@@ -1020,6 +1066,7 @@ export function Canvas() {
         setRegions(loadedRegions)
         setSearchQuery('')
         setActiveSearchIndex(-1)
+        setDetailPanel(null)
         setDirty(false)
         showToast('文件加载成功！', 'success')
       } catch (error) {
@@ -1045,6 +1092,7 @@ export function Canvas() {
     setInitialGenerating(false)
     setSearchQuery('')
     setActiveSearchIndex(-1)
+    setDetailPanel(null)
     setMetaEditor(null)
     setVersionDialog(null)
     setShowRegionPanel(false)
@@ -1081,12 +1129,14 @@ export function Canvas() {
   }, [createNodeAtPosition])
 
   const handlePaneContextMenu = useCallback((event: any) => {
+    if (canvasMode !== 'learn') return
     event.preventDefault()
     const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY })
     setContextMenu({ x: event.clientX, y: event.clientY, type: 'pane', flowPosition })
-  }, [screenToFlowPosition])
+  }, [canvasMode, screenToFlowPosition])
 
   const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: RFNode) => {
+    if (canvasMode !== 'learn') return
     event.preventDefault()
     setContextMenu({
       x: event.clientX,
@@ -1095,7 +1145,12 @@ export function Canvas() {
       nodeId: node.id,
       nodeContent: String(node.data.content || '')
     })
-  }, [])
+  }, [canvasMode])
+
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: RFNode) => {
+    if (canvasMode !== 'view') return
+    openNodeDetailById(node.id)
+  }, [canvasMode, openNodeDetailById])
 
   const triggerNodeEdit = useCallback((nodeId: string) => {
     setNodes((nds) =>
@@ -1244,10 +1299,16 @@ export function Canvas() {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-background">
-      <Toolbar onSave={handleSave} onLoad={handleLoad} onNew={handleNew} />
+      <Toolbar
+        onSave={handleSave}
+        onLoad={handleLoad}
+        onNew={handleNew}
+        mode={canvasMode}
+        onModeChange={setCanvasMode}
+      />
 
-      <div className="flex-1 flex">
-        <div ref={canvasRef} className={cn('flex-1 transition-all duration-300 relative', detailContent && 'flex-[2]')}>
+      <div className="flex-1 flex min-h-0">
+        <div ref={canvasRef} className={cn('flex-1 transition-all duration-300 relative min-h-0', detailPanel && 'flex-[2]')}>
           <div className="absolute inset-0 z-20">
             <ReactFlow
               nodes={renderedNodes}
@@ -1257,7 +1318,14 @@ export function Canvas() {
               nodeTypes={nodeTypes}
               onPaneContextMenu={handlePaneContextMenu}
               onNodeContextMenu={handleNodeContextMenu}
+              onNodeClick={handleNodeClick}
               onMove={(_, nextViewport) => setViewport(nextViewport)}
+              nodesDraggable={canvasMode === 'learn'}
+              nodesConnectable={false}
+              nodesFocusable={canvasMode === 'learn'}
+              edgesFocusable={canvasMode === 'learn'}
+              elementsSelectable
+              deleteKeyCode={canvasMode === 'learn' ? ['Backspace', 'Delete'] : null}
               panOnDrag={!regionDrag}
               fitView
             >
@@ -1314,13 +1382,15 @@ export function Canvas() {
               )}
             </div>
 
-            <button
-              onClick={() => setShowRegionPanel((value) => !value)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white/95 shadow-md text-sm hover:bg-accent"
-            >
-              <Layers className="w-4 h-4" />
-              区域
-            </button>
+            {canvasMode === 'learn' && (
+              <button
+                onClick={() => setShowRegionPanel((value) => !value)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white/95 shadow-md text-sm hover:bg-accent"
+              >
+                <Layers className="w-4 h-4" />
+                区域
+              </button>
+            )}
           </div>
 
           {regionBoxes.length > 0 && (
@@ -1358,108 +1428,110 @@ export function Canvas() {
                 ))}
               </div>
 
-              <div className="absolute inset-0 z-30 pointer-events-none">
-                {regionBoxes.map((box) => (
-                  <div
-                    key={`interaction-${box.id}`}
-                    className="absolute pointer-events-none"
-                    style={{
-                      left: box.x * viewport.zoom + viewport.x,
-                      top: box.y * viewport.zoom + viewport.y,
-                      width: box.width * viewport.zoom,
-                      height: box.height * viewport.zoom
-                    }}
-                  >
+              {canvasMode === 'learn' && (
+                <div className="absolute inset-0 z-30 pointer-events-none">
+                  {regionBoxes.map((box) => (
                     <div
-                      className={cn(
-                        'absolute -top-6 left-1 max-w-[240px] h-5 px-2 inline-flex items-center gap-2 text-[11px] pointer-events-auto select-none rounded-md',
-                        regionTitleEdit?.regionId === box.id ? 'cursor-text' : 'cursor-move'
-                      )}
-                      onMouseDown={(event) => {
-                        if (regionTitleEdit?.regionId === box.id) return
-                        handleStartRegionDrag(event, box)
+                      key={`interaction-${box.id}`}
+                      className="absolute pointer-events-none"
+                      style={{
+                        left: box.x * viewport.zoom + viewport.x,
+                        top: box.y * viewport.zoom + viewport.y,
+                        width: box.width * viewport.zoom,
+                        height: box.height * viewport.zoom
                       }}
-                      onDoubleClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        startRegionTitleEdit(box.id, box.name)
-                      }}
-                      style={{ backgroundColor: 'transparent', border: '1px solid transparent' }}
                     >
-                      {regionTitleEdit?.regionId === box.id ? (
-                        <input
-                          autoFocus
-                          value={regionTitleEdit.draft}
-                          onChange={(event) =>
-                            setRegionTitleEdit((prev) =>
-                              prev
-                                ? { ...prev, draft: event.target.value }
-                                : prev
-                            )
-                          }
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onDoubleClick={(event) => event.stopPropagation()}
-                          onBlur={commitRegionTitleEdit}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault()
-                              commitRegionTitleEdit()
+                      <div
+                        className={cn(
+                          'absolute -top-6 left-1 max-w-[240px] h-5 px-2 inline-flex items-center gap-2 text-[11px] pointer-events-auto select-none rounded-md',
+                          regionTitleEdit?.regionId === box.id ? 'cursor-text' : 'cursor-move'
+                        )}
+                        onMouseDown={(event) => {
+                          if (regionTitleEdit?.regionId === box.id) return
+                          handleStartRegionDrag(event, box)
+                        }}
+                        onDoubleClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          startRegionTitleEdit(box.id, box.name)
+                        }}
+                        style={{ backgroundColor: 'transparent', border: '1px solid transparent' }}
+                      >
+                        {regionTitleEdit?.regionId === box.id ? (
+                          <input
+                            autoFocus
+                            value={regionTitleEdit.draft}
+                            onChange={(event) =>
+                              setRegionTitleEdit((prev) =>
+                                prev
+                                  ? { ...prev, draft: event.target.value }
+                                  : prev
+                              )
                             }
-                            if (event.key === 'Escape') {
-                              event.preventDefault()
-                              setRegionTitleEdit(null)
-                            }
-                          }}
-                          className="flex-1 h-4 px-1 rounded-sm bg-white/95 text-[11px] text-foreground outline-none"
-                        />
-                      ) : (
-                        <span className="truncate opacity-0">{box.name}</span>
-                      )}
-                      <span className={cn('shrink-0', regionTitleEdit?.regionId === box.id ? 'opacity-85 text-white' : 'opacity-0')}>
-                        ({regionCoveredNodeCount.get(box.id) || 0})
-                      </span>
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onBlur={commitRegionTitleEdit}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                commitRegionTitleEdit()
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault()
+                                setRegionTitleEdit(null)
+                              }
+                            }}
+                            className="flex-1 h-4 px-1 rounded-sm bg-white/95 text-[11px] text-foreground outline-none"
+                          />
+                        ) : (
+                          <span className="truncate opacity-0">{box.name}</span>
+                        )}
+                        <span className={cn('shrink-0', regionTitleEdit?.regionId === box.id ? 'opacity-85 text-white' : 'opacity-0')}>
+                          ({regionCoveredNodeCount.get(box.id) || 0})
+                        </span>
+                      </div>
+
+                      <div
+                        className="absolute top-0 left-3 right-3 h-4 -translate-y-2 pointer-events-auto cursor-ns-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'n')}
+                      />
+                      <div
+                        className="absolute bottom-0 left-3 right-3 h-4 translate-y-2 pointer-events-auto cursor-ns-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 's')}
+                      />
+                      <div
+                        className="absolute left-0 top-3 bottom-3 w-4 -translate-x-2 pointer-events-auto cursor-ew-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'w')}
+                      />
+                      <div
+                        className="absolute right-0 top-3 bottom-3 w-4 translate-x-2 pointer-events-auto cursor-ew-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'e')}
+                      />
+
+                      <div
+                        className="absolute -left-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'nw')}
+                      />
+                      <div
+                        className="absolute -right-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'ne')}
+                      />
+                      <div
+                        className="absolute -left-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'sw')}
+                      />
+                      <div
+                        className="absolute -right-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(event) => handleStartRegionResize(event, box, 'se')}
+                      />
                     </div>
-
-                    <div
-                      className="absolute top-0 left-3 right-3 h-4 -translate-y-2 pointer-events-auto cursor-ns-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'n')}
-                    />
-                    <div
-                      className="absolute bottom-0 left-3 right-3 h-4 translate-y-2 pointer-events-auto cursor-ns-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 's')}
-                    />
-                    <div
-                      className="absolute left-0 top-3 bottom-3 w-4 -translate-x-2 pointer-events-auto cursor-ew-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'w')}
-                    />
-                    <div
-                      className="absolute right-0 top-3 bottom-3 w-4 translate-x-2 pointer-events-auto cursor-ew-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'e')}
-                    />
-
-                    <div
-                      className="absolute -left-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'nw')}
-                    />
-                    <div
-                      className="absolute -right-2.5 -top-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'ne')}
-                    />
-                    <div
-                      className="absolute -left-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'sw')}
-                    />
-                    <div
-                      className="absolute -right-2.5 -bottom-2.5 w-5 h-5 bg-transparent pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(event) => handleStartRegionResize(event, box, 'se')}
-                    />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
-          {showRegionPanel && (
+          {canvasMode === 'learn' && showRegionPanel && (
             <div className="absolute top-16 right-3 z-40 w-[360px] max-h-[70vh] overflow-y-auto bg-white rounded-xl border border-border shadow-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">区域标注</h3>
@@ -1596,7 +1668,7 @@ export function Canvas() {
             </div>
           )}
 
-          {nodes.length === 0 && (
+          {nodes.length === 0 && canvasMode === 'learn' && (
             <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
               <div className="pointer-events-auto w-full max-w-[560px] bg-white/95 border border-border rounded-xl shadow-lg p-4 backdrop-blur">
                 <h3 className="text-base font-semibold text-foreground">创建首个知识节点</h3>
@@ -1632,6 +1704,15 @@ export function Canvas() {
             </div>
           )}
 
+          {nodes.length === 0 && canvasMode === 'view' && (
+            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
+              <div className="pointer-events-auto w-full max-w-[520px] bg-white/95 border border-border rounded-xl shadow-lg p-4 text-center">
+                <h3 className="text-base font-semibold text-foreground">查看模式</h3>
+                <p className="text-sm text-muted-foreground mt-1">当前画布没有可复习节点。请切换到学习模式后创建内容。</p>
+              </div>
+            </div>
+          )}
+
           {contextMenu && (
             <div
               data-state="open"
@@ -1656,7 +1737,7 @@ export function Canvas() {
                     icon={<Eye className="w-4 h-4" />}
                     label="查看详情"
                     onClick={() => {
-                      setDetailContent(contextMenu.nodeContent || '')
+                      if (contextMenu.nodeId) openNodeDetailById(contextMenu.nodeId)
                       setContextMenu(null)
                     }}
                   />
@@ -1707,20 +1788,63 @@ export function Canvas() {
           )}
         </div>
 
-        {detailContent && (
-          <div className="w-[33%] bg-white border-l border-border flex flex-col shadow-lg">
+        {detailPanel && (
+          <div className="w-[33%] min-h-0 bg-white border-l border-border flex flex-col shadow-lg">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
-              <span className="text-sm font-medium text-foreground">节点详情</span>
-              <button
-                onClick={() => setDetailContent(null)}
-                className="p-1 rounded-md hover:bg-accent transition-colors"
-              >
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">节点详情</div>
+                <div className="text-[11px] text-muted-foreground truncate">ID: {detailPanel.nodeId}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">字号</span>
+                <button
+                  onClick={() => setDetailFontSize((size) => Math.max(12, size - 1))}
+                  className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
+                  title="减小字号"
+                >
+                  A-
+                </button>
+                <input
+                  type="range"
+                  min={12}
+                  max={24}
+                  value={detailFontSize}
+                  onChange={(e) => setDetailFontSize(Number(e.target.value))}
+                  className="w-24"
+                />
+                <button
+                  onClick={() => setDetailFontSize((size) => Math.min(24, size + 1))}
+                  className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
+                  title="增大字号"
+                >
+                  A+
+                </button>
+                <button
+                  onClick={() => setDetailPanel(null)}
+                  className="p-1 rounded-md hover:bg-accent transition-colors"
+                >
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="prose prose-sm prose-slate max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailContent}</ReactMarkdown>
+            <div
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5"
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
+              {detailPanel.question.trim() && (
+                <div className="mb-4 rounded border border-border bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground mb-1">问题</div>
+                  <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detailPanel.question}</div>
+                </div>
+              )}
+              <div
+                className="prose prose-slate max-w-none"
+                style={{
+                  fontSize: `${detailFontSize}px`,
+                  lineHeight: 1.7
+                }}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailPanel.content}</ReactMarkdown>
               </div>
             </div>
           </div>
