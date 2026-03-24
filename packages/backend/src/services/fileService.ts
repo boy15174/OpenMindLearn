@@ -14,6 +14,15 @@ interface GraphData {
   name: string
 }
 
+function parseInteger(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return fallback
+}
+
 /**
  * 保存图谱为 .oml 文件（ZIP 格式）
  * 返回 base64 编码的 ZIP 数据
@@ -71,7 +80,9 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
         content,
         position: nodeInfo.position,
         parentIds: nodeInfo.parentIds || [],
-        createdAt: nodeInfo.createdAt
+        createdAt: nodeInfo.createdAt,
+        expansionColor: nodeInfo.expansionColor,
+        sourceRef: nodeInfo.sourceRef
       }
     })
   )
@@ -101,13 +112,19 @@ function generateStructureXml(graphData: GraphData): string {
         node: graphData.nodes.map(node => ({
           $: {
             id: node.id,
-            x: node.position.x.toString(),
-            y: node.position.y.toString()
+            x: (node.position?.x ?? 0).toString(),
+            y: (node.position?.y ?? 0).toString()
           },
           parentIds: node.parentIds.length > 0 ? {
             parent: node.parentIds
           } : undefined,
-          createdAt: node.createdAt
+          createdAt: node.createdAt,
+          expansionColor: node.expansionColor,
+          sourceRef: node.sourceRef ? {
+            upstreamFingerprintBase64: node.sourceRef.upstreamFingerprintBase64,
+            rangeStart: node.sourceRef.rangeStart.toString(),
+            rangeEnd: node.sourceRef.rangeEnd.toString()
+          } : undefined
         }))
       },
       edges: graphData.edges.length > 0 ? {
@@ -153,8 +170,18 @@ async function parseStructureXml(xmlContent: string): Promise<any> {
         x: parseFloat(node.$.x),
         y: parseFloat(node.$.y)
       },
-      parentIds: node.parentIds?.[0]?.parent || [],
-      createdAt: node.createdAt?.[0] || new Date().toISOString()
+      parentIds: Array.isArray(node.parentIds?.[0]?.parent)
+        ? node.parentIds[0].parent
+        : node.parentIds?.[0]?.parent
+        ? [node.parentIds[0].parent]
+        : [],
+      createdAt: node.createdAt?.[0] || new Date().toISOString(),
+      expansionColor: node.expansionColor?.[0],
+      sourceRef: node.sourceRef?.[0] ? {
+        upstreamFingerprintBase64: node.sourceRef[0].upstreamFingerprintBase64?.[0] || '',
+        rangeStart: parseInteger(node.sourceRef[0].rangeStart?.[0], 0),
+        rangeEnd: parseInteger(node.sourceRef[0].rangeEnd?.[0], 0)
+      } : undefined
     })),
     edges: edges.map((edge: any) => ({
       id: edge.$.id,
@@ -163,4 +190,3 @@ async function parseStructureXml(xmlContent: string): Promise<any> {
     }))
   }
 }
-

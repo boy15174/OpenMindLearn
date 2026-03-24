@@ -6,7 +6,108 @@ import { Sparkles, Loader2, Save } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { ContextPanel } from './ContextPanel'
 import { useToastStore } from '../stores/toastStore'
-import type { Node } from '../types'
+import type { Node, SourceReference } from '../types'
+import { fingerprintBase64 } from '../utils/textMeta'
+
+interface SourceHighlight extends SourceReference {
+  color: string
+}
+
+interface SelectionMenuState {
+  x: number
+  y: number
+  text: string
+  sourceRef: SourceReference
+}
+
+function getSelectionOffsets(container: HTMLElement, range: Range): { start: number; end: number } {
+  const preRange = range.cloneRange()
+  preRange.selectNodeContents(container)
+  preRange.setEnd(range.startContainer, range.startOffset)
+  const start = preRange.toString().length
+  const end = start + range.toString().length
+  return { start, end }
+}
+
+function getContainerPlainText(container: HTMLElement): string {
+  const range = document.createRange()
+  range.selectNodeContents(container)
+  return range.toString()
+}
+
+function clearSourceHighlightMarks(container: HTMLElement) {
+  const marks = container.querySelectorAll('mark[data-source-highlight="true"]')
+  marks.forEach((mark) => {
+    const parent = mark.parentNode
+    if (!parent) return
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark)
+    }
+    parent.removeChild(mark)
+    parent.normalize()
+  })
+}
+
+function applySourceHighlightByRanges(container: HTMLElement, highlights: SourceHighlight[]) {
+  if (highlights.length === 0) return
+
+  const sortedHighlights = [...highlights].sort((a, b) => a.rangeStart - b.rangeStart)
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode as Text
+    if (!textNode.nodeValue) continue
+    if (textNode.parentElement?.closest('mark[data-source-highlight="true"]')) continue
+    textNodes.push(textNode)
+  }
+
+  let nodeStartOffset = 0
+  textNodes.forEach((textNode) => {
+    const originalText = textNode.nodeValue || ''
+    const nodeEndOffset = nodeStartOffset + originalText.length
+    const active = sortedHighlights.filter(
+      h => h.rangeStart < nodeEndOffset && h.rangeEnd > nodeStartOffset
+    )
+
+    if (active.length === 0) {
+      nodeStartOffset = nodeEndOffset
+      return
+    }
+
+    const fragment = document.createDocumentFragment()
+    let cursor = 0
+
+    active.forEach((highlight) => {
+      const localStart = Math.max(0, highlight.rangeStart - nodeStartOffset)
+      const localEnd = Math.min(originalText.length, highlight.rangeEnd - nodeStartOffset)
+      if (localEnd <= localStart) return
+      if (localStart > cursor) {
+        fragment.appendChild(document.createTextNode(originalText.slice(cursor, localStart)))
+      }
+
+      const mark = document.createElement('mark')
+      mark.setAttribute('data-source-highlight', 'true')
+      mark.style.backgroundColor = `${highlight.color}33`
+      mark.style.color = 'inherit'
+      mark.style.padding = '0 1px'
+      mark.style.borderRadius = '2px'
+      mark.textContent = originalText.slice(localStart, localEnd)
+      fragment.appendChild(mark)
+      cursor = Math.max(cursor, localEnd)
+    })
+
+    if (cursor < originalText.length) {
+      fragment.appendChild(document.createTextNode(originalText.slice(cursor)))
+    }
+
+    if (textNode.parentNode) {
+      textNode.parentNode.replaceChild(fragment, textNode)
+    }
+
+    nodeStartOffset = nodeEndOffset
+  })
+}
 
 interface NodeCardProps {
   data: {
@@ -14,8 +115,10 @@ interface NodeCardProps {
     isEditing?: boolean
     nodeId: string
     onGenerate: (content: string) => void
-    onExpand: (text: string, selectedNodeIds?: string[]) => void
+    onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference) => void
     allNodes?: Node[]
+    expansionColor?: string
+    sourceHighlights?: SourceHighlight[]
   }
 }
 
@@ -23,9 +126,8 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   const [isEditing, setIsEditing] = useState(data.isEditing || false)
   const [content, setContent] = useState(data.content)
   const [loading, setLoading] = useState(false)
-  const [hasGenerated, setHasGenerated] = useState(!!data.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number; text: string } | null>(null)
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null)
   const [showPromptInput, setShowPromptInput] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
@@ -35,7 +137,6 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   useEffect(() => {
     if (data.content && data.content !== content) {
       setContent(data.content)
-      setHasGenerated(true)
       setIsEditing(false)
     }
   }, [data.content])
@@ -46,25 +147,60 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     }
   }, [isEditing])
 
+  useEffect(() => {
+    const container = contentRef.current
+    if (!container || isEditing) return
+
+    clearSourceHighlightMarks(container)
+    const plainText = getContainerPlainText(container)
+    const validHighlights = (data.sourceHighlights || []).filter((highlight) => {
+      if (!highlight.upstreamFingerprintBase64) return false
+      if (highlight.rangeStart < 0 || highlight.rangeEnd <= highlight.rangeStart) return false
+      if (highlight.rangeEnd > plainText.length) return false
+      return highlight.upstreamFingerprintBase64 === fingerprintBase64(plainText)
+    })
+
+    if (validHighlights.length > 0) {
+      applySourceHighlightByRanges(container, validHighlights)
+    }
+  }, [content, isEditing, data.sourceHighlights])
+
   // Handle text selection in preview mode
   const handleTextSelection = () => {
-    if (isEditing) return
+    if (isEditing || !contentRef.current) return
 
     const selection = window.getSelection()
-    const selectedText = selection?.toString().trim()
+    if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    if (!contentRef.current.contains(range.commonAncestorContainer)) return
 
-    if (selectedText && selectedText.length > 0) {
-      const range = selection?.getRangeAt(0)
-      const rect = range?.getBoundingClientRect()
+    const rawSelectedText = selection.toString()
+    if (!rawSelectedText.trim()) return
 
-      if (rect) {
-        setSelectionMenu({
-          x: rect.left + rect.width / 2,
-          y: rect.bottom + 8,
-          text: selectedText
-        })
-      }
+    const leadingWhitespace = (rawSelectedText.match(/^\s*/) || [''])[0].length
+    const trailingWhitespace = (rawSelectedText.match(/\s*$/) || [''])[0].length
+    const { start, end } = getSelectionOffsets(contentRef.current, range)
+    const normalizedStart = start + leadingWhitespace
+    const normalizedEnd = Math.max(normalizedStart, end - trailingWhitespace)
+    const plainText = getContainerPlainText(contentRef.current)
+    const selectedText = plainText.slice(normalizedStart, normalizedEnd)
+    if (!selectedText) return
+
+    const rect = range.getBoundingClientRect()
+    if (!rect) return
+
+    const sourceRef: SourceReference = {
+      upstreamFingerprintBase64: fingerprintBase64(plainText),
+      rangeStart: normalizedStart,
+      rangeEnd: normalizedEnd
     }
+
+    setSelectionMenu({
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 8,
+      text: selectedText,
+      sourceRef
+    })
   }
 
   // Close selection menu on click outside
@@ -93,7 +229,6 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     setLoading(true)
     try {
       await data.onGenerate(content)
-      setHasGenerated(true)
     } finally {
       setLoading(false)
     }
@@ -101,14 +236,13 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
 
   const handleSave = () => {
     setIsEditing(false)
-    setHasGenerated(true)
   }
 
   const handleDirectExpand = async () => {
     if (!selectionMenu) return
     setSelectionMenu(null)
     window.getSelection()?.removeAllRanges()
-    await data.onExpand(selectionMenu.text)
+    await data.onExpand(selectionMenu.text, undefined, selectionMenu.sourceRef)
   }
 
   const handleCustomPrompt = () => {
@@ -131,7 +265,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     setSelectionMenu(null)
     setShowPromptInput(false)
     window.getSelection()?.removeAllRanges()
-    await data.onExpand(customPrompt)
+    await data.onExpand(customPrompt, undefined, selectionMenu?.sourceRef)
     setCustomPrompt('')
   }
 
@@ -147,6 +281,10 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
         'w-[380px] relative group',
         isEditing && 'ring-1 ring-primary/40 shadow-md'
       )}
+      style={{
+        borderColor: data.expansionColor || undefined,
+        borderWidth: data.expansionColor ? '2px' : undefined
+      }}
     >
       <Handle
         type="target"
@@ -305,11 +443,12 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
           allNodes={data.allNodes}
           onConfirm={(selectedNodeIds) => {
             const text = selectionMenu?.text
+            const sourceRef = selectionMenu?.sourceRef
             setShowContextPanel(false)
             setSelectionMenu(null)
             window.getSelection()?.removeAllRanges()
             if (text) {
-              data.onExpand(text, selectedNodeIds)
+              data.onExpand(text, selectedNodeIds, sourceRef)
             }
           }}
           onClose={() => {

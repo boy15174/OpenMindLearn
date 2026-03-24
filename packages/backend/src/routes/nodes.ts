@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
-import { generateContent, generateWithContext } from '../services/llm.js'
+import { generateContent, generateWithContext, setLLMConfig } from '../services/llm.js'
 import { buildContextChain, generateContextXml } from '../services/contextService.js'
-import { Node } from '../types/index.js'
+import { Node, SourceReference } from '../types/index.js'
 
 export async function nodeRoutes(fastify: FastifyInstance) {
   fastify.post('/api/nodes/generate', async (request, reply) => {
@@ -11,11 +11,12 @@ export async function nodeRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/api/nodes/expand', async (request, reply) => {
-    const { text, parentId, allNodes, selectedNodeIds } = request.body as {
+    const { text, parentId, allNodes, selectedNodeIds, sourceRef } = request.body as {
       text: string
       parentId: string
       allNodes?: Node[]
       selectedNodeIds?: string[]
+      sourceRef?: SourceReference
     }
 
     let content: string
@@ -42,6 +43,21 @@ export async function nodeRoutes(fastify: FastifyInstance) {
       content = await generateContent(`请详细解释: ${text}`)
     }
 
-    return { id: Date.now().toString(), content, parentId }
+    return {
+      id: Date.now().toString(),
+      content,
+      parentId,
+      sourceRef
+    }
+  })
+
+  fastify.post('/api/config/llm', async (request, reply) => {
+    const { apiKey, baseURL, model } = request.body as {
+      apiKey: string
+      baseURL: string
+      model: string
+    }
+    setLLMConfig({ apiKey, baseURL, model })
+    return { success: true }
   })
 }

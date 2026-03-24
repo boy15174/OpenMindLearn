@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react'
-import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow } from '@xyflow/react'
+import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow, useViewport, BackgroundVariant } from '@xyflow/react'
 import type { Node as RFNode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { NodeCard } from './NodeCard'
@@ -7,12 +7,56 @@ import { Toolbar } from './Toolbar'
 import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
 import { useGraphStore } from '../stores/graphStore'
 import { useToastStore } from '../stores/toastStore'
+import { getExpansionColor } from '../utils/colors'
 import { Plus, X, Eye, Pencil, RefreshCw } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
-import type { Node } from '../types'
+import type { Node, SourceReference } from '../types'
 
 const nodeTypes = { custom: NodeCard }
+
+interface SourceHighlight extends SourceReference {
+  color: string
+}
+
+function calculateRelativePosition(
+  parentNode: any,
+  viewport: { x: number; y: number; zoom: number }
+): { x: number; y: number } {
+  if (!parentNode) return { x: 0, y: 0 }
+  const offsetY = 300 / viewport.zoom
+  return {
+    x: parentNode.position.x,
+    y: parentNode.position.y + offsetY
+  }
+}
+
+function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
+  return rfNodes.map(n => ({
+    id: n.id,
+    content: n.data.content || '',
+    position: n.position,
+    parentIds: rfEdges.filter(e => e.target === n.id).map(e => e.source),
+    createdAt: new Date().toISOString(),
+    expansionColor: n.data.expansionColor,
+    sourceRef: n.data.sourceRef
+  }))
+}
+
+function buildSourceHighlightMap(nodes: Node[]): Map<string, SourceHighlight[]> {
+  const map = new Map<string, SourceHighlight[]>()
+  nodes.forEach((node) => {
+    const parentId = node.parentIds[0]
+    if (!parentId || !node.sourceRef) return
+    const current = map.get(parentId) || []
+    current.push({
+      ...node.sourceRef,
+      color: node.expansionColor || '#3b82f6'
+    })
+    map.set(parentId, current)
+  })
+  return map
+}
 
 type MenuType = 'pane' | 'node'
 
@@ -26,11 +70,12 @@ interface ContextMenuState {
 }
 
 export function Canvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<any>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([])
   const [detailContent, setDetailContent] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const { screenToFlowPosition } = useReactFlow()
+  const viewport = useViewport()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
 
@@ -52,11 +97,22 @@ export function Canvas() {
   const handleGenerate = useCallback(async (nodeId: string, content: string) => {
     const result = await generateNode(content)
     setNodes((nds) => nds.map(n =>
-      n.id === nodeId ? { ...n, data: { ...n.data, content: result.content } } : n
+      n.id === nodeId ? {
+        ...n,
+        data: {
+          ...n.data,
+          content: result.content
+        }
+      } : n
     ))
   }, [setNodes])
 
-  const handleExpand = useCallback(async (text: string, parentId: string, selectedNodeIds?: string[]) => {
+  const handleExpand = useCallback(async (
+    text: string,
+    parentId: string,
+    selectedNodeIds?: string[],
+    sourceRef?: SourceReference
+  ) => {
     // Get current nodes state
     let currentNodes: any[] = []
     let currentEdges: any[] = []
@@ -71,42 +127,55 @@ export function Canvas() {
       return eds
     })
 
-    // Convert ReactFlow nodes to Node type for context
-    const allNodes: Node[] = currentNodes.map(n => ({
-      id: n.id,
-      content: n.data.content || '',
-      position: n.position,
-      parentIds: currentEdges.filter(e => e.target === n.id).map(e => e.source),
-      createdAt: new Date().toISOString()
-    }))
+    const allNodes: Node[] = buildNodeSnapshots(currentNodes, currentEdges)
 
     // Create a placeholder node immediately
     const newNodeId = `node-${Date.now()}`
+    const relationshipId = `${parentId}-${Date.now()}`
+    const expansionColor = getExpansionColor(relationshipId)
     const parentNode = nodes.find(n => n.id === parentId)
     const placeholderNode = {
       id: newNodeId,
       type: 'custom',
-      position: {
-        x: (parentNode?.position.x || 0) + 400,
-        y: (parentNode?.position.y || 0) + 50
-      },
+      position: calculateRelativePosition(parentNode, viewport),
       data: {
         content: '生成中...',
         nodeId: newNodeId,
         isGenerating: true,
+        expansionColor,
+        sourceRef,
         onGenerate: (c: string) => handleGenerate(newNodeId, c),
-        onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, newNodeId, selectedIds),
-        allNodes
+        onExpand: (nextText: string, selectedIds?: string[], nextSourceRef?: SourceReference) =>
+          handleExpand(nextText, newNodeId, selectedIds, nextSourceRef),
+        allNodes,
+        sourceHighlights: [] as SourceHighlight[]
       }
+    }
+    const newEdge = {
+      id: `e${parentId}-${newNodeId}`,
+      source: parentId,
+      target: newNodeId,
+      style: { stroke: expansionColor, strokeWidth: 2 }
     }
 
     // Add placeholder node and edge immediately
-    setNodes((nds) => [...nds, placeholderNode])
-    setEdges((eds) => addEdge({ id: `e${parentId}-${newNodeId}`, source: parentId, target: newNodeId }, eds))
+    setNodes((nds) => {
+      const nextNodes = [...nds, placeholderNode]
+      const nextSnapshots = buildNodeSnapshots(nextNodes, [...currentEdges, newEdge])
+      const highlightMap = buildSourceHighlightMap(nextSnapshots)
+      return nextNodes.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          sourceHighlights: highlightMap.get(node.id) || []
+        }
+      }))
+    })
+    setEdges((eds) => addEdge(newEdge, eds))
 
     // Call API and update node content
     try {
-      const result = await expandNode(text, parentId, allNodes, selectedNodeIds)
+      const result = await expandNode(text, parentId, allNodes, selectedNodeIds, sourceRef)
       setNodes((nds) => nds.map(n =>
         n.id === newNodeId ? {
           ...n,
@@ -114,6 +183,7 @@ export function Canvas() {
             ...n.data,
             content: result.content,
             isGenerating: false,
+            sourceRef: result.sourceRef || sourceRef,
             allNodes
           }
         } : n
@@ -127,12 +197,13 @@ export function Canvas() {
             ...n.data,
             content: '生成失败，请重试',
             isGenerating: false,
+            sourceRef,
             allNodes
           }
         } : n
       ))
     }
-  }, [nodes, edges, setNodes, setEdges, handleGenerate])
+  }, [nodes, setNodes, setEdges, handleGenerate, viewport])
 
   // File operations
   const handleSave = async () => {
@@ -142,7 +213,9 @@ export function Canvas() {
         content: n.data.content || '',
         position: n.position,
         parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        expansionColor: n.data.expansionColor,
+        sourceRef: n.data.sourceRef
       }))
 
       const result = await saveFile(graphNodes, edges, fileName)
@@ -179,6 +252,7 @@ export function Canvas() {
         loadGraph({ nodes: result.nodes, name: result.name })
 
         // Convert to ReactFlow format
+        const highlightMap = buildSourceHighlightMap(result.nodes)
         const rfNodes = result.nodes.map((n: Node) => ({
           id: n.id,
           type: 'custom',
@@ -186,8 +260,12 @@ export function Canvas() {
           data: {
             content: n.content,
             nodeId: n.id,
+            expansionColor: n.expansionColor,
+            sourceRef: n.sourceRef,
+            sourceHighlights: highlightMap.get(n.id) || [],
             onGenerate: (c: string) => handleGenerate(n.id, c),
-            onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, n.id, selectedIds),
+            onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
+              handleExpand(text, n.id, selectedIds, sourceRef),
             allNodes: result.nodes
           }
         }))
@@ -223,13 +301,16 @@ export function Canvas() {
         isEditing: true,
         nodeId,
         onGenerate: (c: string) => handleGenerate(nodeId, c),
-        onExpand: (text: string, selectedIds?: string[]) => handleExpand(text, nodeId, selectedIds),
+        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
+          handleExpand(text, nodeId, selectedIds, sourceRef),
         allNodes: nodes.map(n => ({
           id: n.id,
           content: n.data.content || '',
           position: n.position,
           parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          expansionColor: n.data.expansionColor,
+          sourceRef: n.data.sourceRef
         }))
       }
     }
@@ -237,7 +318,7 @@ export function Canvas() {
   }, [setNodes, handleGenerate, handleExpand, nodes, edges])
 
   // Right-click on blank area
-  const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
+  const handlePaneContextMenu = useCallback((event: any) => {
     event.preventDefault()
     const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY })
     setContextMenu({ x: event.clientX, y: event.clientY, type: 'pane', flowPosition })
@@ -285,7 +366,7 @@ export function Canvas() {
           onNodeContextMenu={handleNodeContextMenu}
           fitView
         >
-          <Background gap={16} size={1} color="hsl(214 32% 85%)" variant="dots" />
+          <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
           <Controls className="!shadow-md !border-border !rounded-lg" />
         </ReactFlow>
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useGraphStore } from '../stores/graphStore'
-import { FileText, Save, FolderOpen, FilePlus } from 'lucide-react'
+import { FileText, Save, FolderOpen, FilePlus, Settings } from 'lucide-react'
+import { SettingsDialog } from './SettingsDialog'
 
 interface ToolbarProps {
   onSave: () => void
@@ -12,6 +13,7 @@ export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
   const { fileName, isDirty, setFileName } = useGraphStore()
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(fileName)
+  const [showSettings, setShowSettings] = useState(false)
 
   const handleFileNameClick = () => {
     setIsEditing(true)
@@ -67,6 +69,14 @@ export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
       {/* 右侧：操作按钮 */}
       <div className="flex items-center gap-2">
         <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-100 rounded text-sm"
+          title="设置"
+        >
+          <Settings className="w-4 h-4" />
+          设置
+        </button>
+        <button
           onClick={onNew}
           className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-100 rounded text-sm"
           title="新建文件"
@@ -91,6 +101,8 @@ export function Toolbar({ onSave, onLoad, onNew }: ToolbarProps) {
           保存
         </button>
       </div>
+
+      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   )
 }
