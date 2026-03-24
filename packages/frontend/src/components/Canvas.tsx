@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react'
-import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow, useViewport, BackgroundVariant } from '@xyflow/react'
+import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow, BackgroundVariant } from '@xyflow/react'
 import type { Node as RFNode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { NodeCard } from './NodeCard'
@@ -12,23 +12,12 @@ import { Plus, X, Eye, Pencil, RefreshCw } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
 import type { Node, SourceReference } from '../types'
+import { calculateChildNodePosition } from '../utils/nodePosition'
 
 const nodeTypes = { custom: NodeCard }
 
 interface SourceHighlight extends SourceReference {
   color: string
-}
-
-function calculateRelativePosition(
-  parentNode: any,
-  viewport: { x: number; y: number; zoom: number }
-): { x: number; y: number } {
-  if (!parentNode) return { x: 0, y: 0 }
-  const offsetY = 300 / viewport.zoom
-  return {
-    x: parentNode.position.x,
-    y: parentNode.position.y + offsetY
-  }
 }
 
 function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
@@ -74,8 +63,7 @@ export function Canvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<any>([])
   const [detailContent, setDetailContent] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const { screenToFlowPosition } = useReactFlow()
-  const viewport = useViewport()
+  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
 
@@ -113,19 +101,8 @@ export function Canvas() {
     selectedNodeIds?: string[],
     sourceRef?: SourceReference
   ) => {
-    // Get current nodes state
-    let currentNodes: any[] = []
-    let currentEdges: any[] = []
-
-    setNodes(nds => {
-      currentNodes = nds
-      return nds
-    })
-
-    setEdges(eds => {
-      currentEdges = eds
-      return eds
-    })
+    const currentNodes = getNodes()
+    const currentEdges = getEdges()
 
     const allNodes: Node[] = buildNodeSnapshots(currentNodes, currentEdges)
 
@@ -133,11 +110,11 @@ export function Canvas() {
     const newNodeId = `node-${Date.now()}`
     const relationshipId = `${parentId}-${Date.now()}`
     const expansionColor = getExpansionColor(relationshipId)
-    const parentNode = nodes.find(n => n.id === parentId)
+    const parentNode = currentNodes.find(n => n.id === parentId)
     const placeholderNode = {
       id: newNodeId,
       type: 'custom',
-      position: calculateRelativePosition(parentNode, viewport),
+      position: calculateChildNodePosition(parentNode, currentNodes),
       data: {
         content: '生成中...',
         nodeId: newNodeId,
@@ -203,7 +180,7 @@ export function Canvas() {
         } : n
       ))
     }
-  }, [nodes, setNodes, setEdges, handleGenerate, viewport])
+  }, [getNodes, getEdges, setNodes, setEdges, handleGenerate])
 
   // File operations
   const handleSave = async () => {
