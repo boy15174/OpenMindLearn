@@ -42,8 +42,10 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
     })
   }
 
-  // 3. 创建空的 resources 目录
+  // 3. 创建 resources 目录结构
   zip.folder('resources')
+  zip.folder('resources/images')
+  zip.folder('resources/attachments')
 
   // 4. 生成 ZIP 并返回 base64
   const zipBlob = await zip.generateAsync({ type: 'base64' })

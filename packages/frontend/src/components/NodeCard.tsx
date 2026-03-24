@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Handle, Position } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Sparkles, Loader2, Save } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { ContextPanel } from './ContextPanel'
@@ -313,7 +314,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             onMouseUp={handleTextSelection}
             className="prose prose-sm prose-slate max-h-[220px] overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text"
           >
-            <ReactMarkdown>{content || '_空节点_'}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '_空节点_'}</ReactMarkdown>
           </div>
         )}
       </div>

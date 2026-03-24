@@ -11,33 +11,47 @@ interface ContextPanelProps {
 
 export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: ContextPanelProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [ancestorNodes, setAncestorNodes] = useState<Node[]>([])
+  const [upstreamNodes, setUpstreamNodes] = useState<Node[]>([])
 
   useEffect(() => {
-    // 构建祖先节点列表
-    const ancestors: Node[] = []
     const nodeMap = new Map(allNodes.map(n => [n.id, n]))
+    const allUpstreamIds = new Set<string>([currentNodeId])
+    const distanceFromCurrent = new Map<string, number>([[currentNodeId, 0]])
     const visited = new Set<string>()
+    const stack: Array<{ id: string; depth: number }> = [{ id: currentNodeId, depth: 0 }]
 
-    const collectAncestors = (nodeId: string) => {
-      if (visited.has(nodeId)) return
-      visited.add(nodeId)
+    while (stack.length > 0) {
+      const current = stack.pop()
+      if (!current) continue
+      if (visited.has(current.id)) continue
+      visited.add(current.id)
 
-      const node = nodeMap.get(nodeId)
-      if (!node) return
+      const node = nodeMap.get(current.id)
+      if (!node || !node.parentIds || node.parentIds.length === 0) continue
 
-      ancestors.unshift(node)
-
-      if (node.parentIds && node.parentIds.length > 0) {
-        collectAncestors(node.parentIds[0])
-      }
+      node.parentIds.forEach((parentId) => {
+        allUpstreamIds.add(parentId)
+        const nextDepth = current.depth + 1
+        if (!distanceFromCurrent.has(parentId)) {
+          distanceFromCurrent.set(parentId, nextDepth)
+        }
+        if (!visited.has(parentId)) stack.push({ id: parentId, depth: nextDepth })
+      })
     }
 
-    collectAncestors(currentNodeId)
+    const ordered = Array.from(allUpstreamIds)
+      .map((id) => nodeMap.get(id))
+      .filter((node): node is Node => Boolean(node))
+      .sort((a, b) => {
+        const depthA = distanceFromCurrent.get(a.id) ?? 0
+        const depthB = distanceFromCurrent.get(b.id) ?? 0
+        if (depthA !== depthB) return depthB - depthA
+        return (a.createdAt || '').localeCompare(b.createdAt || '')
+      })
 
-    setAncestorNodes(ancestors)
+    setUpstreamNodes(ordered)
     // 默认全部选中
-    setSelectedIds(new Set(ancestors.map(n => n.id)))
+    setSelectedIds(new Set(ordered.map(n => n.id)))
   }, [currentNodeId, allNodes])
 
   const toggleNode = (nodeId: string) => {
@@ -53,7 +67,7 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
   }
 
   const handleConfirm = () => {
-    onConfirm(Array.from(selectedIds))
+    onConfirm(upstreamNodes.filter(node => selectedIds.has(node.id)).map(node => node.id))
   }
 
   return (
@@ -79,11 +93,11 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
 
         {/* 节点列表 */}
         <div className="flex-1 overflow-y-auto p-4">
-          {ancestorNodes.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">没有找到祖先节点</p>
+          {upstreamNodes.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">没有可用上游节点</p>
           ) : (
             <div className="space-y-2">
-              {ancestorNodes.map((node, index) => {
+              {upstreamNodes.map((node, index) => {
                 const isSelected = selectedIds.has(node.id)
                 const summary = node.content.slice(0, 100) + (node.content.length > 100 ? '...' : '')
 
@@ -104,6 +118,9 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs text-gray-500">节点 {index + 1}</span>
+                          {node.id === currentNodeId && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">当前</span>
+                          )}
                           <span className="text-xs text-gray-400">{node.id.slice(0, 8)}</span>
                         </div>
                         <p className="text-sm text-gray-700 line-clamp-2">{summary}</p>
@@ -119,7 +136,7 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
         {/* 底部按钮 */}
         <div className="flex items-center justify-between p-4 border-t bg-gray-50">
           <p className="text-sm text-gray-600">
-            已选择 {selectedIds.size} / {ancestorNodes.length} 个节点
+            已选择 {selectedIds.size} / {upstreamNodes.length} 个节点
           </p>
           <div className="flex gap-2">
             <button

@@ -23,6 +23,10 @@ const DEFAULT_OPTIONS: Required<NodePlacementOptions> = {
   maxColumns: 6
 }
 
+function mergeOptions(overrides?: NodePlacementOptions): Required<NodePlacementOptions> {
+  return { ...DEFAULT_OPTIONS, ...overrides }
+}
+
 function intersects(
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -49,23 +53,19 @@ function buildColumnOrder(maxColumns: number): number[] {
   return order
 }
 
-export function calculateChildNodePosition(
-  parentNode: PositionedNode | undefined,
+function findAvailablePosition(
+  anchor: { x: number; y: number },
   nodes: PositionedNode[],
-  overrides?: NodePlacementOptions
+  options: Required<NodePlacementOptions>
 ): { x: number; y: number } {
-  if (!parentNode) return { x: 0, y: 0 }
-
-  const options: Required<NodePlacementOptions> = { ...DEFAULT_OPTIONS, ...overrides }
   const columnStep = options.nodeWidth + options.horizontalGap
   const rowStep = options.nodeHeight + options.verticalGap
-  const baseY = parentNode.position.y + rowStep
   const columnOrder = buildColumnOrder(options.maxColumns)
 
   for (let row = 0; row <= options.maxRows; row += 1) {
-    const y = baseY + row * rowStep
+    const y = anchor.y + row * rowStep
     for (const column of columnOrder) {
-      const x = parentNode.position.x + column * columnStep
+      const x = anchor.x + column * columnStep
       const candidate = { x, y }
       const hasCollision = nodes.some((node) => intersects(candidate, node.position, options))
       if (!hasCollision) return candidate
@@ -73,7 +73,34 @@ export function calculateChildNodePosition(
   }
 
   return {
-    x: parentNode.position.x,
-    y: baseY + (options.maxRows + 1) * rowStep
+    x: anchor.x,
+    y: anchor.y + (options.maxRows + 1) * rowStep
   }
+}
+
+export function calculateInitialNodePosition(
+  nodes: PositionedNode[],
+  viewportCenter: { x: number; y: number },
+  overrides?: NodePlacementOptions
+): { x: number; y: number } {
+  const options = mergeOptions(overrides)
+  const anchor = {
+    x: viewportCenter.x - options.nodeWidth / 2,
+    y: viewportCenter.y - options.nodeHeight / 2
+  }
+
+  if (nodes.length === 0) return anchor
+  return findAvailablePosition(anchor, nodes, options)
+}
+
+export function calculateChildNodePosition(
+  parentNode: PositionedNode | undefined,
+  nodes: PositionedNode[],
+  overrides?: NodePlacementOptions
+): { x: number; y: number } {
+  if (!parentNode) return { x: 0, y: 0 }
+
+  const options = mergeOptions(overrides)
+  const baseY = parentNode.position.y + options.nodeHeight + options.verticalGap
+  return findAvailablePosition({ x: parentNode.position.x, y: baseY }, nodes, options)
 }

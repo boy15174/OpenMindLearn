@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow, BackgroundVariant } from '@xyflow/react'
 import type { Node as RFNode } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -8,11 +8,12 @@ import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
 import { useGraphStore } from '../stores/graphStore'
 import { useToastStore } from '../stores/toastStore'
 import { getExpansionColor } from '../utils/colors'
-import { Plus, X, Eye, Pencil, RefreshCw } from 'lucide-react'
+import { Plus, X, Eye, Pencil, RefreshCw, ClipboardPaste, Sparkles } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Node, SourceReference } from '../types'
-import { calculateChildNodePosition } from '../utils/nodePosition'
+import { calculateChildNodePosition, calculateInitialNodePosition } from '../utils/nodePosition'
 
 const nodeTypes = { custom: NodeCard }
 
@@ -63,6 +64,9 @@ export function Canvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<any>([])
   const [detailContent, setDetailContent] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [initialInput, setInitialInput] = useState('')
+  const [initialGenerating, setInitialGenerating] = useState(false)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
@@ -81,6 +85,15 @@ export function Canvas() {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [contextMenu])
+
+  const getCanvasCenterFlowPosition = useCallback(() => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return { x: 200, y: 120 }
+    return screenToFlowPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    })
+  }, [screenToFlowPosition])
 
   const handleGenerate = useCallback(async (nodeId: string, content: string) => {
     const result = await generateNode(content)
@@ -134,16 +147,18 @@ export function Canvas() {
       target: newNodeId,
       style: { stroke: expansionColor, strokeWidth: 2 }
     }
+    const edgesWithNewEdge = [...currentEdges, newEdge]
 
     // Add placeholder node and edge immediately
     setNodes((nds) => {
       const nextNodes = [...nds, placeholderNode]
-      const nextSnapshots = buildNodeSnapshots(nextNodes, [...currentEdges, newEdge])
+      const nextSnapshots = buildNodeSnapshots(nextNodes, edgesWithNewEdge)
       const highlightMap = buildSourceHighlightMap(nextSnapshots)
       return nextNodes.map(node => ({
         ...node,
         data: {
           ...node.data,
+          allNodes: nextSnapshots,
           sourceHighlights: highlightMap.get(node.id) || []
         }
       }))
@@ -153,34 +168,95 @@ export function Canvas() {
     // Call API and update node content
     try {
       const result = await expandNode(text, parentId, allNodes, selectedNodeIds, sourceRef)
-      setNodes((nds) => nds.map(n =>
-        n.id === newNodeId ? {
-          ...n,
+      setNodes((nds) => {
+        const updatedNodes = nds.map(n =>
+          n.id === newNodeId ? {
+            ...n,
+            data: {
+              ...n.data,
+              content: result.content,
+              isGenerating: false,
+              sourceRef: result.sourceRef || sourceRef
+            }
+          } : n
+        )
+        const snapshots = buildNodeSnapshots(updatedNodes, edgesWithNewEdge)
+        const highlightMap = buildSourceHighlightMap(snapshots)
+        return updatedNodes.map(node => ({
+          ...node,
           data: {
-            ...n.data,
-            content: result.content,
-            isGenerating: false,
-            sourceRef: result.sourceRef || sourceRef,
-            allNodes
+            ...node.data,
+            allNodes: snapshots,
+            sourceHighlights: highlightMap.get(node.id) || []
           }
-        } : n
-      ))
+        }))
+      })
     } catch (error) {
       console.error('Failed to expand node:', error)
-      setNodes((nds) => nds.map(n =>
-        n.id === newNodeId ? {
-          ...n,
+      setNodes((nds) => {
+        const updatedNodes = nds.map(n =>
+          n.id === newNodeId ? {
+            ...n,
+            data: {
+              ...n.data,
+              content: '生成失败，请重试',
+              isGenerating: false,
+              sourceRef
+            }
+          } : n
+        )
+        const snapshots = buildNodeSnapshots(updatedNodes, edgesWithNewEdge)
+        const highlightMap = buildSourceHighlightMap(snapshots)
+        return updatedNodes.map(node => ({
+          ...node,
           data: {
-            ...n.data,
-            content: '生成失败，请重试',
-            isGenerating: false,
-            sourceRef,
-            allNodes
+            ...node.data,
+            allNodes: snapshots,
+            sourceHighlights: highlightMap.get(node.id) || []
           }
-        } : n
-      ))
+        }))
+      })
     }
   }, [getNodes, getEdges, setNodes, setEdges, handleGenerate])
+
+  const createNodeAtPosition = useCallback((position: { x: number; y: number }, content: string, isEditing: boolean) => {
+    const nodeId = Date.now().toString()
+    const currentEdges = getEdges()
+    const newNode = {
+      id: nodeId,
+      type: 'custom',
+      position,
+      data: {
+        content,
+        isEditing,
+        nodeId,
+        onGenerate: (c: string) => handleGenerate(nodeId, c),
+        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
+          handleExpand(text, nodeId, selectedIds, sourceRef),
+        allNodes: [] as Node[],
+        sourceHighlights: [] as SourceHighlight[]
+      }
+    }
+    setNodes((nds) => {
+      const nextNodes = [...nds, newNode]
+      const nextSnapshots = buildNodeSnapshots(nextNodes, currentEdges)
+      const highlightMap = buildSourceHighlightMap(nextSnapshots)
+      return nextNodes.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          allNodes: nextSnapshots,
+          sourceHighlights: highlightMap.get(node.id) || []
+        }
+      }))
+    })
+  }, [getEdges, handleGenerate, handleExpand, setNodes])
+
+  const createFirstNode = useCallback((content: string, isEditing: boolean) => {
+    const center = getCanvasCenterFlowPosition()
+    const position = calculateInitialNodePosition(getNodes(), center)
+    createNodeAtPosition(position, content, isEditing)
+  }, [getCanvasCenterFlowPosition, getNodes, createNodeAtPosition])
 
   // File operations
   const handleSave = async () => {
@@ -265,34 +341,39 @@ export function Canvas() {
     clearGraph()
     setNodes([])
     setEdges([])
+    setInitialInput('')
+    setInitialGenerating(false)
   }
 
-  const createNode = useCallback((position: { x: number; y: number }) => {
-    const nodeId = Date.now().toString()
-    const newNode = {
-      id: nodeId,
-      type: 'custom',
-      position,
-      data: {
-        content: '',
-        isEditing: true,
-        nodeId,
-        onGenerate: (c: string) => handleGenerate(nodeId, c),
-        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
-          handleExpand(text, nodeId, selectedIds, sourceRef),
-        allNodes: nodes.map(n => ({
-          id: n.id,
-          content: n.data.content || '',
-          position: n.position,
-          parentIds: edges.filter(e => e.target === n.id).map(e => e.source),
-          createdAt: new Date().toISOString(),
-          expansionColor: n.data.expansionColor,
-          sourceRef: n.data.sourceRef
-        }))
-      }
+  const handleCreateFirstFromText = useCallback(() => {
+    const text = initialInput.trim()
+    if (!text) return
+    createFirstNode(text, false)
+    setInitialInput('')
+    showToast('首节点已创建', 'success')
+  }, [initialInput, createFirstNode, showToast])
+
+  const handleGenerateFirstFromPrompt = useCallback(async () => {
+    const prompt = initialInput.trim()
+    if (!prompt) return
+
+    setInitialGenerating(true)
+    try {
+      const result = await generateNode(prompt)
+      createFirstNode(result.content || '', false)
+      setInitialInput('')
+      showToast('首节点生成成功', 'success')
+    } catch (error) {
+      console.error('首节点生成失败:', error)
+      showToast('首节点生成失败，请重试', 'error')
+    } finally {
+      setInitialGenerating(false)
     }
-    setNodes((nds) => [...nds, newNode])
-  }, [setNodes, handleGenerate, handleExpand, nodes, edges])
+  }, [initialInput, createFirstNode, showToast])
+
+  const createNode = useCallback((position: { x: number; y: number }) => {
+    createNodeAtPosition(position, '', true)
+  }, [createNodeAtPosition])
 
   // Right-click on blank area
   const handlePaneContextMenu = useCallback((event: any) => {
@@ -332,58 +413,94 @@ export function Canvas() {
       {/* Canvas and Detail Panel */}
       <div className="flex-1 flex">
         {/* Canvas */}
-        <div className={cn('flex-1 transition-all duration-300', detailContent && 'flex-[2]')}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          onPaneContextMenu={handlePaneContextMenu}
-          onNodeContextMenu={handleNodeContextMenu}
-          fitView
-        >
-          <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
-          <Controls className="!shadow-md !border-border !rounded-lg" />
-        </ReactFlow>
-
-        {/* Context Menu */}
-        {contextMenu && (
-          <div
-            data-state="open"
-            className="fixed z-[9999] min-w-[180px] rounded-lg border bg-white shadow-lg py-1"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={(e) => e.stopPropagation()}
+        <div ref={canvasRef} className={cn('flex-1 transition-all duration-300 relative', detailContent && 'flex-[2]')}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            onPaneContextMenu={handlePaneContextMenu}
+            onNodeContextMenu={handleNodeContextMenu}
+            fitView
           >
-            {contextMenu.type === 'pane' && (
-              <MenuItem
-                icon={<Plus className="w-4 h-4" />}
-                label="创建知识节点"
-                onClick={() => { createNode(contextMenu.flowPosition!); setContextMenu(null) }}
-              />
-            )}
-            {contextMenu.type === 'node' && (
-              <>
-                <MenuItem
-                  icon={<Eye className="w-4 h-4" />}
-                  label="查看详情"
-                  onClick={() => { setDetailContent(contextMenu.nodeContent || ''); setContextMenu(null) }}
+            <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
+            <Controls className="!shadow-md !border-border !rounded-lg" />
+          </ReactFlow>
+
+          {nodes.length === 0 && (
+            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
+              <div className="pointer-events-auto w-full max-w-[560px] bg-white/95 border border-border rounded-xl shadow-lg p-4 backdrop-blur">
+                <h3 className="text-base font-semibold text-foreground">创建首个知识节点</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  粘贴文本可直接创建首节点，或输入 Prompt 后一键生成。
+                </p>
+                <textarea
+                  value={initialInput}
+                  onChange={(e) => setInitialInput(e.target.value)}
+                  rows={6}
+                  className="mt-3 w-full p-3 text-sm rounded border border-border/70 bg-background resize-none outline-none focus:border-primary/50"
+                  placeholder="粘贴文本，或输入你希望生成的主题..."
                 />
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    onClick={handleCreateFirstFromText}
+                    disabled={!initialInput.trim() || initialGenerating}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-border hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ClipboardPaste className="w-4 h-4" />
+                    粘贴文本创建
+                  </button>
+                  <button
+                    onClick={handleGenerateFirstFromPrompt}
+                    disabled={!initialInput.trim() || initialGenerating}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {initialGenerating ? '生成中...' : 'Prompt 生成'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Context Menu */}
+          {contextMenu && (
+            <div
+              data-state="open"
+              className="fixed z-[9999] min-w-[180px] rounded-lg border bg-white shadow-lg py-1"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {contextMenu.type === 'pane' && (
                 <MenuItem
-                  icon={<Pencil className="w-4 h-4" />}
-                  label="编辑内容"
-                  onClick={() => { triggerNodeEdit(contextMenu.nodeId!); setContextMenu(null) }}
+                  icon={<Plus className="w-4 h-4" />}
+                  label="创建知识节点"
+                  onClick={() => { createNode(contextMenu.flowPosition!); setContextMenu(null) }}
                 />
-                <div className="h-px bg-border mx-2 my-1" />
-                <MenuItem
-                  icon={<RefreshCw className="w-4 h-4" />}
-                  label="重新生成"
-                  onClick={() => { triggerNodeEdit(contextMenu.nodeId!); setContextMenu(null) }}
-                />
-              </>
-            )}
-          </div>
-        )}
+              )}
+              {contextMenu.type === 'node' && (
+                <>
+                  <MenuItem
+                    icon={<Eye className="w-4 h-4" />}
+                    label="查看详情"
+                    onClick={() => { setDetailContent(contextMenu.nodeContent || ''); setContextMenu(null) }}
+                  />
+                  <MenuItem
+                    icon={<Pencil className="w-4 h-4" />}
+                    label="编辑内容"
+                    onClick={() => { triggerNodeEdit(contextMenu.nodeId!); setContextMenu(null) }}
+                  />
+                  <div className="h-px bg-border mx-2 my-1" />
+                  <MenuItem
+                    icon={<RefreshCw className="w-4 h-4" />}
+                    label="重新生成"
+                    onClick={() => { triggerNodeEdit(contextMenu.nodeId!); setContextMenu(null) }}
+                  />
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Detail Panel */}
@@ -400,7 +517,7 @@ export function Canvas() {
             </div>
             <div className="flex-1 overflow-y-auto p-5">
               <div className="prose prose-sm prose-slate max-w-none">
-                <ReactMarkdown>{detailContent}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailContent}</ReactMarkdown>
               </div>
             </div>
           </div>

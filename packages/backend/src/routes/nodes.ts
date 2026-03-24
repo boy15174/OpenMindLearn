@@ -27,7 +27,10 @@ export async function nodeRoutes(fastify: FastifyInstance) {
 
       // 如果提供了 selectedNodeIds，使用手动选择的节点
       if (selectedNodeIds && selectedNodeIds.length > 0) {
-        contextNodes = allNodes.filter(node => selectedNodeIds.includes(node.id))
+        const nodeMap = new Map(allNodes.map((node) => [node.id, node]))
+        contextNodes = selectedNodeIds
+          .map((id) => nodeMap.get(id))
+          .filter((node): node is Node => Boolean(node))
       } else {
         // 否则自动回溯父节点链（最多 10 个）
         contextNodes = buildContextChain(parentId, allNodes, 10)
