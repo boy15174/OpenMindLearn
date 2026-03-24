@@ -17,10 +17,21 @@ function LLMSettingsSync() {
   return null
 }
 
+function ThemeSync() {
+  const theme = useSettingsStore((state) => state.uiSettings.theme)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
+
+  return null
+}
+
 export default function App() {
   return (
     <ReactFlowProvider>
       <LLMSettingsSync />
+      <ThemeSync />
       <Canvas />
       <Toast />
     </ReactFlowProvider>

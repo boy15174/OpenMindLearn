@@ -301,7 +301,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   return (
     <div
       className={cn(
-        'rounded-lg border bg-white shadow-sm transition-all',
+        'rounded-lg border bg-background text-foreground shadow-sm transition-all',
         'w-full h-full min-h-0 relative group flex flex-col',
         data.searchMatched && 'ring-2 ring-amber-400/80 shadow-md',
         data.searchActive && 'ring-2 ring-amber-500 shadow-lg',
@@ -321,13 +321,13 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
         )}
         isVisible={Boolean(selected) && !isReadOnly}
         lineClassName="!border-primary/35"
-        handleClassName="!w-2.5 !h-2.5 !rounded-sm !bg-white !border !border-primary/55"
+        handleClassName="!w-2.5 !h-2.5 !rounded-sm !bg-background !border !border-primary/55"
       />
 
       <Handle
         type="target"
         position={Position.Top}
-        className="!w-2 !h-2 !bg-primary/50 !border-2 !border-white"
+        className="!w-2 !h-2 !bg-primary/50 !border-2 !border-background"
       />
 
       {/* Content Area */}
@@ -335,12 +335,12 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
         {!isEditing && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {(data.tags || []).map((tag) => (
-              <span key={tag} className="px-1.5 py-0.5 text-[11px] rounded bg-blue-50 text-blue-700 border border-blue-200">
+              <span key={tag} className="px-1.5 py-0.5 text-[11px] rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/45 dark:text-blue-200 dark:border-blue-800">
                 #{tag}
               </span>
             ))}
             {(data.note || '').trim() && (
-              <span className="px-1.5 py-0.5 text-[11px] rounded bg-amber-50 text-amber-700 border border-amber-200">
+              <span className="px-1.5 py-0.5 text-[11px] rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/45 dark:text-amber-200 dark:border-amber-800">
                 备注
               </span>
             )}
@@ -364,9 +364,10 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             <div
               ref={contentRef}
               onMouseUp={handleTextSelection}
-              className="prose prose-sm prose-slate max-w-none flex-1 min-h-0 overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text
+              className="prose prose-sm prose-slate dark:prose-invert max-w-none flex-1 min-h-0 overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text
                 prose-p:text-[13px] prose-li:text-[13px] prose-blockquote:text-[13px]
                 prose-headings:my-2 prose-headings:font-semibold
+                prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground
                 prose-h1:text-[16px] prose-h2:text-[15px] prose-h3:text-[14px] prose-h4:text-[13px]
                 prose-code:text-[12px] prose-pre:text-[12px]"
             >
@@ -418,13 +419,13 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!w-2 !h-2 !bg-primary/50 !border-2 !border-white"
+        className="!w-2 !h-2 !bg-primary/50 !border-2 !border-background"
       />
 
       {/* Selection Menu - rendered via Portal */}
       {selectionMenu && !showPromptInput && !showContextPanel && createPortal(
         <div
-          className="selection-menu fixed z-[10000] bg-white rounded-lg shadow-lg border border-border p-1 flex gap-1"
+          className="selection-menu fixed z-[10000] bg-background text-foreground rounded-lg shadow-lg border border-border p-1 flex gap-1"
           style={{
             left: selectionMenu.x,
             top: selectionMenu.y,
@@ -456,7 +457,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
       {/* Custom Prompt Input - rendered via Portal */}
       {showPromptInput && selectionMenu && createPortal(
         <div
-          className="selection-menu fixed z-[10000] bg-white rounded-lg shadow-lg border border-border p-3"
+          className="selection-menu fixed z-[10000] bg-background text-foreground rounded-lg shadow-lg border border-border p-3"
           style={{
             left: selectionMenu.x,
             top: selectionMenu.y,

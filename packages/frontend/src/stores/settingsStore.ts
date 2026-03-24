@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type ExpandMode = 'direct' | 'targeted' | 'custom_context'
+export type ThemeMode = 'light' | 'dark'
 
 export interface PromptTemplates {
   directExpand: string
@@ -21,9 +22,16 @@ interface LLMSettings {
   promptTemplates: PromptTemplates
 }
 
+interface UISettings {
+  theme: ThemeMode
+}
+
 interface SettingsStore {
   llmSettings: LLMSettings
+  uiSettings: UISettings
   updateLLMSettings: (settings: Partial<LLMSettings>) => void
+  updateUISettings: (settings: Partial<UISettings>) => void
+  setTheme: (theme: ThemeMode) => void
 }
 
 const DEFAULT_SYSTEM_PROMPT = '只输出最终答案，不要输出任何思考过程、推理步骤、分析过程或 think 标签。'
@@ -58,10 +66,15 @@ const DEFAULT_LLM_SETTINGS: LLMSettings = {
   promptTemplates: DEFAULT_PROMPT_TEMPLATES
 }
 
+const DEFAULT_UI_SETTINGS: UISettings = {
+  theme: 'light'
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
       llmSettings: DEFAULT_LLM_SETTINGS,
+      uiSettings: DEFAULT_UI_SETTINGS,
       updateLLMSettings: (settings) => set((state) => ({
         llmSettings: {
           ...state.llmSettings,
@@ -70,6 +83,18 @@ export const useSettingsStore = create<SettingsStore>()(
             ...state.llmSettings.promptTemplates,
             ...(settings.promptTemplates || {})
           }
+        }
+      })),
+      updateUISettings: (settings) => set((state) => ({
+        uiSettings: {
+          ...state.uiSettings,
+          ...settings
+        }
+      })),
+      setTheme: (theme) => set((state) => ({
+        uiSettings: {
+          ...state.uiSettings,
+          theme
         }
       }))
     }),
@@ -89,6 +114,11 @@ export const useSettingsStore = create<SettingsStore>()(
               ...current.llmSettings.promptTemplates,
               ...(persistedState.llmSettings?.promptTemplates || {})
             }
+          },
+          uiSettings: {
+            ...DEFAULT_UI_SETTINGS,
+            ...current.uiSettings,
+            ...(persistedState.uiSettings || {})
           }
         } as SettingsStore
       }

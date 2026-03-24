@@ -381,7 +381,8 @@ export function Canvas() {
   const { screenToFlowPosition, getNodes, getEdges, setCenter } = useReactFlow()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
-  const { llmSettings } = useSettingsStore()
+  const llmSettings = useSettingsStore((state) => state.llmSettings)
+  const theme = useSettingsStore((state) => state.uiSettings.theme)
 
   const refreshNodeRuntimeData = useCallback((rfNodes: any[], edgeList: any[]) => {
     const snapshots = buildNodeSnapshots(rfNodes, edgeList)
@@ -1327,15 +1328,16 @@ export function Canvas() {
               elementsSelectable
               deleteKeyCode={canvasMode === 'learn' ? ['Backspace', 'Delete'] : null}
               panOnDrag={!regionDrag}
+              colorMode={theme}
               fitView
             >
-              <Background gap={16} size={1} color="hsl(214 32% 85%)" variant={BackgroundVariant.Dots} />
+              <Background gap={16} size={1} color="hsl(var(--canvas-dot))" variant={BackgroundVariant.Dots} />
               <Controls className="!shadow-md !border-border !rounded-lg" />
             </ReactFlow>
           </div>
 
           <div className="absolute top-3 left-3 z-30 pointer-events-auto flex items-start gap-2">
-            <div className="w-[360px] bg-white/95 border border-border rounded-lg shadow-md p-2">
+            <div className="w-[360px] bg-background/95 border border-border rounded-lg shadow-md p-2 backdrop-blur">
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-muted-foreground" />
                 <input
@@ -1385,7 +1387,7 @@ export function Canvas() {
             {canvasMode === 'learn' && (
               <button
                 onClick={() => setShowRegionPanel((value) => !value)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white/95 shadow-md text-sm hover:bg-accent"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background/95 shadow-md text-sm hover:bg-accent backdrop-blur"
               >
                 <Layers className="w-4 h-4" />
                 区域
@@ -1481,7 +1483,7 @@ export function Canvas() {
                                 setRegionTitleEdit(null)
                               }
                             }}
-                            className="flex-1 h-4 px-1 rounded-sm bg-white/95 text-[11px] text-foreground outline-none"
+                            className="flex-1 h-4 px-1 rounded-sm bg-background/95 border border-border/70 text-[11px] text-foreground outline-none"
                           />
                         ) : (
                           <span className="truncate opacity-0">{box.name}</span>
@@ -1532,7 +1534,7 @@ export function Canvas() {
           )}
 
           {canvasMode === 'learn' && showRegionPanel && (
-            <div className="absolute top-16 right-3 z-40 w-[360px] max-h-[70vh] overflow-y-auto bg-white rounded-xl border border-border shadow-lg p-3 space-y-3">
+            <div className="absolute top-16 right-3 z-40 w-[360px] max-h-[70vh] overflow-y-auto bg-background rounded-xl border border-border shadow-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">区域标注</h3>
                 <button
@@ -1547,7 +1549,7 @@ export function Canvas() {
                 <input
                   value={newRegionName}
                   onChange={(e) => setNewRegionName(e.target.value)}
-                  className="w-full px-2 py-1.5 text-sm rounded border border-border bg-white"
+                  className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background"
                   placeholder="区域标题"
                 />
                 <div className="flex items-center gap-2">
@@ -1563,14 +1565,14 @@ export function Canvas() {
                   value={newRegionDescription}
                   onChange={(e) => setNewRegionDescription(e.target.value)}
                   rows={2}
-                  className="w-full px-2 py-1.5 text-sm rounded border border-border bg-white resize-none"
+                  className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background resize-none"
                   placeholder="区域说明（可选）"
                 />
                 <textarea
                   value={manualRegionNodeIds}
                   onChange={(e) => setManualRegionNodeIds(e.target.value)}
                   rows={2}
-                  className="w-full px-2 py-1.5 text-xs rounded border border-border bg-white resize-none"
+                  className="w-full px-2 py-1.5 text-xs rounded border border-border bg-background resize-none"
                   placeholder="初始化参考节点 ID（可选，逗号分隔；仅用于创建时计算区域大小）"
                 />
                 <div className="text-xs text-muted-foreground">
@@ -1578,7 +1580,7 @@ export function Canvas() {
                 </div>
                 <button
                   onClick={handleCreateRegion}
-                  className="w-full px-3 py-1.5 rounded bg-primary text-white text-sm hover:bg-primary/90"
+                  className="w-full px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90"
                 >
                   创建区域
                 </button>
@@ -1658,7 +1660,7 @@ export function Canvas() {
                     />
                     <button
                       onClick={() => handleDeleteRegion(region.id)}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
+                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
                     >
                       <Trash2 className="w-3 h-3" /> 删除
                     </button>
@@ -1670,7 +1672,7 @@ export function Canvas() {
 
           {nodes.length === 0 && canvasMode === 'learn' && (
             <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
-              <div className="pointer-events-auto w-full max-w-[560px] bg-white/95 border border-border rounded-xl shadow-lg p-4 backdrop-blur">
+              <div className="pointer-events-auto w-full max-w-[560px] bg-background/95 border border-border rounded-xl shadow-lg p-4 backdrop-blur">
                 <h3 className="text-base font-semibold text-foreground">创建首个知识节点</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   粘贴文本可直接创建首节点，或输入 Prompt 后一键生成。
@@ -1694,7 +1696,7 @@ export function Canvas() {
                   <button
                     onClick={handleGenerateFirstFromPrompt}
                     disabled={!initialInput.trim() || initialGenerating}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Sparkles className="w-4 h-4" />
                     {initialGenerating ? '生成中...' : 'Prompt 生成'}
@@ -1706,7 +1708,7 @@ export function Canvas() {
 
           {nodes.length === 0 && canvasMode === 'view' && (
             <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
-              <div className="pointer-events-auto w-full max-w-[520px] bg-white/95 border border-border rounded-xl shadow-lg p-4 text-center">
+              <div className="pointer-events-auto w-full max-w-[520px] bg-background/95 border border-border rounded-xl shadow-lg p-4 text-center">
                 <h3 className="text-base font-semibold text-foreground">查看模式</h3>
                 <p className="text-sm text-muted-foreground mt-1">当前画布没有可复习节点。请切换到学习模式后创建内容。</p>
               </div>
@@ -1716,7 +1718,7 @@ export function Canvas() {
           {contextMenu && (
             <div
               data-state="open"
-              className="fixed z-[9999] min-w-[220px] rounded-lg border bg-white shadow-lg py-1"
+              className="fixed z-[9999] min-w-[220px] rounded-lg border border-border bg-background text-foreground shadow-lg py-1"
               style={{ top: contextMenu.y, left: contextMenu.x }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1789,7 +1791,7 @@ export function Canvas() {
         </div>
 
         {detailPanel && (
-          <div className="w-[33%] min-h-0 bg-white border-l border-border flex flex-col shadow-lg">
+          <div className="w-[33%] min-h-0 bg-background border-l border-border flex flex-col shadow-lg">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-foreground">节点详情</div>
@@ -1838,7 +1840,7 @@ export function Canvas() {
                 </div>
               )}
               <div
-                className="prose prose-slate max-w-none"
+                className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground"
                 style={{
                   fontSize: `${detailFontSize}px`,
                   lineHeight: 1.7
@@ -1858,7 +1860,7 @@ export function Canvas() {
             if (e.target === e.currentTarget) setMetaEditor(null)
           }}
         >
-          <div className="w-full max-w-[520px] bg-white rounded-xl border border-border shadow-xl p-4 space-y-3">
+          <div className="w-full max-w-[520px] bg-background text-foreground rounded-xl border border-border shadow-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">编辑标签与备注</h3>
               <button onClick={() => setMetaEditor(null)} className="p-1 rounded hover:bg-accent">
@@ -1896,7 +1898,7 @@ export function Canvas() {
               </button>
               <button
                 onClick={handleSaveNodeMeta}
-                className="px-3 py-2 text-sm rounded bg-primary text-white hover:bg-primary/90"
+                className="px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 保存
               </button>
@@ -1912,7 +1914,7 @@ export function Canvas() {
             if (e.target === e.currentTarget) setVersionDialog(null)
           }}
         >
-          <div className="w-full max-w-[980px] max-h-[80vh] overflow-hidden bg-white rounded-xl border border-border shadow-xl flex">
+          <div className="w-full max-w-[980px] max-h-[80vh] overflow-hidden bg-background text-foreground rounded-xl border border-border shadow-xl flex">
             <div className="w-[280px] border-r border-border p-3 overflow-y-auto">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold">版本历史</h3>
@@ -1930,7 +1932,9 @@ export function Canvas() {
                       onClick={() => setSelectedVersionIndex(index)}
                       className={cn(
                         'w-full text-left px-2 py-1.5 rounded border text-xs',
-                        selectedVersionIndex === index ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-border hover:bg-accent'
+                        selectedVersionIndex === index
+                          ? 'bg-primary/10 border-primary/40 text-primary'
+                          : 'border-border hover:bg-accent'
                       )}
                     >
                       <div>版本 {index + 1}</div>
@@ -1947,12 +1951,12 @@ export function Canvas() {
                 <button
                   onClick={handleRestoreVersion}
                   disabled={versionDialog.versions.length === 0}
-                  className="px-3 py-1.5 text-sm rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-40"
+                  className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                 >
                   恢复选中版本
                 </button>
               </div>
-              <div className="flex-1 overflow-auto p-4 bg-slate-50">
+              <div className="flex-1 overflow-auto p-4 bg-muted/35">
                 {versionDialog.versions.length === 0 ? (
                   <div className="text-sm text-muted-foreground">没有可对比内容</div>
                 ) : (
@@ -1962,9 +1966,9 @@ export function Canvas() {
                         key={`${line.type}-${index}`}
                         className={cn(
                           'px-2 py-0.5 rounded',
-                          line.type === 'added' && 'bg-green-100 text-green-800',
-                          line.type === 'removed' && 'bg-red-100 text-red-800',
-                          line.type === 'same' && 'text-slate-700'
+                          line.type === 'added' && 'bg-green-100 text-green-800 dark:bg-green-950/45 dark:text-green-200',
+                          line.type === 'removed' && 'bg-red-100 text-red-800 dark:bg-red-950/45 dark:text-red-200',
+                          line.type === 'same' && 'text-foreground/80'
                         )}
                       >
                         {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '} {line.text}
