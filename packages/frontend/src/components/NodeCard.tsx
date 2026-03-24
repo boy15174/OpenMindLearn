@@ -115,7 +115,12 @@ interface NodeCardProps {
     content: string
     isEditing?: boolean
     nodeId: string
+    tags?: string[]
+    note?: string
+    searchMatched?: boolean
+    searchActive?: boolean
     onGenerate: (content: string) => void
+    onSaveContent: (content: string) => void
     onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference) => void
     allNodes?: Node[]
     expansionColor?: string
@@ -141,6 +146,10 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
       setIsEditing(false)
     }
   }, [data.content])
+
+  useEffect(() => {
+    setIsEditing(Boolean(data.isEditing))
+  }, [data.isEditing])
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -236,6 +245,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
   }
 
   const handleSave = () => {
+    data.onSaveContent(content)
     setIsEditing(false)
   }
 
@@ -270,16 +280,13 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     setCustomPrompt('')
   }
 
-  // Expose edit trigger via data
-  useEffect(() => {
-    (data as any)._setIsEditing = (v: boolean) => setIsEditing(v)
-  })
-
   return (
     <div
       className={cn(
         'rounded-lg border bg-white shadow-sm transition-all',
         'w-[380px] relative group',
+        data.searchMatched && 'ring-2 ring-amber-400/80 shadow-md',
+        data.searchActive && 'ring-2 ring-amber-500 shadow-lg',
         isEditing && 'ring-1 ring-primary/40 shadow-md'
       )}
       style={{
@@ -295,6 +302,20 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
 
       {/* Content Area */}
       <div className="p-3">
+        {!isEditing && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {(data.tags || []).map((tag) => (
+              <span key={tag} className="px-1.5 py-0.5 text-[11px] rounded bg-blue-50 text-blue-700 border border-blue-200">
+                #{tag}
+              </span>
+            ))}
+            {(data.note || '').trim() && (
+              <span className="px-1.5 py-0.5 text-[11px] rounded bg-amber-50 text-amber-700 border border-amber-200">
+                备注
+              </span>
+            )}
+          </div>
+        )}
         {isEditing ? (
           <textarea
             ref={textareaRef}
@@ -309,12 +330,23 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             placeholder="输入内容或问题..."
           />
         ) : (
-          <div
-            ref={contentRef}
-            onMouseUp={handleTextSelection}
-            className="prose prose-sm prose-slate max-h-[220px] overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '_空节点_'}</ReactMarkdown>
+          <div className="space-y-2">
+            <div
+              ref={contentRef}
+              onMouseUp={handleTextSelection}
+              className="prose prose-sm prose-slate max-h-[220px] overflow-y-auto text-sm leading-relaxed nowheel nodrag select-text
+                prose-p:text-[13px] prose-li:text-[13px] prose-blockquote:text-[13px]
+                prose-headings:my-2 prose-headings:font-semibold
+                prose-h1:text-[16px] prose-h2:text-[15px] prose-h3:text-[14px] prose-h4:text-[13px]
+                prose-code:text-[12px] prose-pre:text-[12px]"
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '_空节点_'}</ReactMarkdown>
+            </div>
+            {(data.note || '').trim() && (
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 border border-border/60 line-clamp-3">
+                {data.note}
+              </div>
+            )}
           </div>
         )}
       </div>

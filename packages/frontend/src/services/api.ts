@@ -1,4 +1,4 @@
-import { Node, SourceReference } from '../types'
+import { Node, SourceReference, Region } from '../types'
 
 const API_BASE = '/api'
 
@@ -26,11 +26,11 @@ export async function expandNode(
   return res.json()
 }
 
-export async function saveFile(nodes: Node[], edges: any[], name: string) {
+export async function saveFile(nodes: Node[], edges: any[], name: string, regions?: Region[]) {
   const res = await fetch(`${API_BASE}/files/save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nodes, edges, name })
+    body: JSON.stringify({ nodes, edges, regions, name })
   })
   return res.json()
 }

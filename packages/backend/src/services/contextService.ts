@@ -42,8 +42,12 @@ export function generateContextXml(nodes: Node[]): string {
   const nodeElements = nodes.map(node => {
     // 转义 XML 特殊字符
     const escapedContent = escapeXml(node.content)
+    const escapedQuestion = escapeXml(node.question || '')
+    const questionElement = escapedQuestion
+      ? `\n    <question>${escapedQuestion}</question>`
+      : ''
     return `  <node id="${node.id}">
-    <content>${escapedContent}</content>
+    <content>${escapedContent}</content>${questionElement}
   </node>`
   }).join('\n')
 

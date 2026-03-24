@@ -5,7 +5,7 @@ export default async function filesRoutes(fastify: FastifyInstance) {
   // 保存图谱为 .oml 文件
   fastify.post('/save', async (request, reply) => {
     try {
-      const { nodes, edges, name } = request.body as any
+      const { nodes, edges, regions, name } = request.body as any
 
       if (!nodes || !Array.isArray(nodes)) {
         return reply.code(400).send({ error: 'Invalid nodes data' })
@@ -14,6 +14,7 @@ export default async function filesRoutes(fastify: FastifyInstance) {
       const base64Data = await saveOmlFile({
         nodes,
         edges: edges || [],
+        regions: regions || [],
         name: name || 'Untitled'
       })
 

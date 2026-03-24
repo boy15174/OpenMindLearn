@@ -1,26 +1,115 @@
 import JSZip from 'jszip'
 import { Builder, Parser } from 'xml2js'
-import { Node } from '../types/index.js'
+import { Node, Region, SourceReference } from '../types/index.js'
 
 interface Edge {
   id: string
   source: string
   target: string
+  style?: {
+    stroke?: string
+    strokeWidth?: number
+  }
 }
 
 interface GraphData {
   nodes: Node[]
   edges: Edge[]
+  regions?: Region[]
   name: string
 }
 
-function parseInteger(value: unknown, fallback: number): number {
+interface NodeDescriptorVersion {
+  timestamp: string
+  file: string
+}
+
+interface NodeDescriptor {
+  id: string
+  contentFile: string
+  question?: string
+  position: { x: number; y: number }
+  parentIds: string[]
+  createdAt: string
+  updatedAt?: string
+  tags?: string[]
+  note?: string
+  versions?: NodeDescriptorVersion[]
+  expansionColor?: string
+  sourceRef?: SourceReference
+}
+
+function parseString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function parseNumber(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
-    const parsed = parseInt(value, 10)
+    const parsed = Number(value)
     if (Number.isFinite(parsed)) return parsed
   }
   return fallback
+}
+
+function sanitizeFileName(input: string, fallback: string): string {
+  const value = (input || '').trim()
+  const sanitized = value.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-')
+  return sanitized || fallback
+}
+
+function getVersionFileName(timestamp: string, index: number): string {
+  const safeTime = sanitizeFileName(timestamp, `v${index + 1}`)
+  return `${String(index + 1).padStart(2, '0')}-${safeTime}.md`
+}
+
+async function readRequiredFile(zip: JSZip, path: string, errorMessage: string): Promise<string> {
+  const file = zip.file(path)
+  if (!file) {
+    throw new Error(errorMessage)
+  }
+  return file.async('string')
+}
+
+function listNodeDescriptorPaths(zip: JSZip): string[] {
+  return Object.keys(zip.files)
+    .filter((path) => /^nodes\/[^/]+\/node\.json$/.test(path))
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function normalizeSourceRef(value: unknown): SourceReference | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Record<string, unknown>
+  const upstreamFingerprintBase64 = parseString(source.upstreamFingerprintBase64)
+  if (!upstreamFingerprintBase64) return undefined
+
+  return {
+    upstreamFingerprintBase64,
+    rangeStart: parseNumber(source.rangeStart, 0),
+    rangeEnd: parseNumber(source.rangeEnd, 0)
+  }
+}
+
+function buildEdgesFromNodeParents(nodes: Node[]): Edge[] {
+  const edges: Edge[] = []
+  nodes.forEach((node) => {
+    const childId = node.id
+    const parents = Array.isArray(node.parentIds) ? node.parentIds : []
+    parents.forEach((parentId, index) => {
+      edges.push({
+        id: `e${parentId}-${childId}-${index}`,
+        source: parentId,
+        target: childId,
+        style: node.expansionColor
+          ? {
+              stroke: node.expansionColor,
+              strokeWidth: 2
+            }
+          : undefined
+      })
+    })
+  })
+  return edges
 }
 
 /**
@@ -30,15 +119,57 @@ function parseInteger(value: unknown, fallback: number): number {
 export async function saveOmlFile(graphData: GraphData): Promise<string> {
   const zip = new JSZip()
 
-  // 1. 生成 structure.xml
+  // 1. 生成 structure.xml（图级信息）
   const structureXml = generateStructureXml(graphData)
   zip.file('structure.xml', structureXml)
 
-  // 2. 创建 nodes 目录并添加节点文件
+  // 2. 创建 nodes 目录并按节点写入独立目录
   const nodesFolder = zip.folder('nodes')
   if (nodesFolder) {
-    graphData.nodes.forEach(node => {
-      nodesFolder.file(`${node.id}.md`, node.content)
+    graphData.nodes.forEach((node) => {
+      const nodeFolder = nodesFolder.folder(node.id)
+      if (!nodeFolder) return
+
+      const versions = (node.versions || []).map((version, index) => {
+        const fileName = getVersionFileName(version.timestamp, index)
+        return {
+          timestamp: version.timestamp,
+          file: fileName,
+          content: version.content
+        }
+      })
+
+      const versionsFolder = nodeFolder.folder('versions')
+      if (versionsFolder) {
+        versions.forEach((version) => {
+          versionsFolder.file(version.file, version.content)
+        })
+      }
+
+      nodeFolder.file('current.md', node.content)
+
+      const descriptor: NodeDescriptor = {
+        id: node.id,
+        contentFile: 'current.md',
+        question: node.question || '',
+        position: {
+          x: node.position?.x ?? 0,
+          y: node.position?.y ?? 0
+        },
+        parentIds: node.parentIds || [],
+        createdAt: node.createdAt || new Date().toISOString(),
+        updatedAt: node.updatedAt,
+        tags: node.tags || [],
+        note: node.note || '',
+        versions: versions.map((version) => ({
+          timestamp: version.timestamp,
+          file: version.file
+        })),
+        expansionColor: node.expansionColor,
+        sourceRef: node.sourceRef
+      }
+
+      nodeFolder.file('node.json', JSON.stringify(descriptor, null, 2))
     })
   }
 
@@ -59,45 +190,106 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
   // 1. 解压 ZIP
   const zip = await JSZip.loadAsync(base64Data, { base64: true })
 
-  // 2. 读取 structure.xml
+  // 2. 读取 structure.xml（图级信息）
   const structureFile = zip.file('structure.xml')
   if (!structureFile) {
     throw new Error('Invalid .oml file: structure.xml not found')
   }
-
   const xmlContent = await structureFile.async('string')
   const structure = await parseStructureXml(xmlContent)
 
-  // 3. 读取所有节点文件
+  // 3. 读取节点目录（每个节点自闭环）
+  const descriptorPaths = listNodeDescriptorPaths(zip)
   const nodes: Node[] = await Promise.all(
-    structure.nodes.map(async (nodeInfo: any) => {
-      const nodeFile = zip.file(`nodes/${nodeInfo.id}.md`)
-      if (!nodeFile) {
-        throw new Error(`Node file not found: ${nodeInfo.id}.md`)
+    descriptorPaths.map(async (descriptorPath) => {
+      const nodeIdFromPath = descriptorPath.split('/')[1]
+
+      const descriptorText = await readRequiredFile(
+        zip,
+        descriptorPath,
+        `Node descriptor not found: ${descriptorPath}`
+      )
+
+      let descriptorRaw: unknown
+      try {
+        descriptorRaw = JSON.parse(descriptorText)
+      } catch (error) {
+        throw new Error(`Invalid node descriptor JSON: ${descriptorPath}`)
       }
 
-      const content = await nodeFile.async('string')
+      const descriptor = descriptorRaw as Partial<NodeDescriptor>
+      const nodeId = parseString(descriptor.id, nodeIdFromPath) || nodeIdFromPath
+      const contentFile = parseString(descriptor.contentFile, 'current.md')
+
+      const content = await readRequiredFile(
+        zip,
+        `nodes/${nodeIdFromPath}/${contentFile}`,
+        `Node current file not found: nodes/${nodeIdFromPath}/${contentFile}`
+      )
+
+      const versionMetas = Array.isArray(descriptor.versions) ? descriptor.versions : []
+      const versions = await Promise.all(
+        versionMetas.map(async (version, index) => {
+          const fileName = parseString(version.file)
+          if (!fileName) {
+            throw new Error(`Node version file missing at ${descriptorPath} index ${index}`)
+          }
+
+          const versionContent = await readRequiredFile(
+            zip,
+            `nodes/${nodeIdFromPath}/versions/${fileName}`,
+            `Node version file not found: nodes/${nodeIdFromPath}/versions/${fileName}`
+          )
+
+          return {
+            timestamp: parseString(version.timestamp, new Date().toISOString()),
+            content: versionContent
+          }
+        })
+      )
+
+      const rawPosition = descriptor.position || { x: 0, y: 0 }
+      const parentIds = Array.isArray(descriptor.parentIds)
+        ? descriptor.parentIds.map((id) => parseString(id)).filter(Boolean)
+        : []
+      const tags = Array.isArray(descriptor.tags)
+        ? descriptor.tags.map((tag) => parseString(tag)).filter(Boolean)
+        : []
+
       return {
-        id: nodeInfo.id,
+        id: nodeId,
         content,
-        position: nodeInfo.position,
-        parentIds: nodeInfo.parentIds || [],
-        createdAt: nodeInfo.createdAt,
-        expansionColor: nodeInfo.expansionColor,
-        sourceRef: nodeInfo.sourceRef
+        question: parseString(descriptor.question),
+        position: {
+          x: parseNumber((rawPosition as any).x, 0),
+          y: parseNumber((rawPosition as any).y, 0)
+        },
+        parentIds,
+        createdAt: parseString(descriptor.createdAt, new Date().toISOString()),
+        updatedAt: parseString(descriptor.updatedAt) || undefined,
+        tags,
+        note: parseString(descriptor.note),
+        versions,
+        expansionColor: parseString(descriptor.expansionColor) || undefined,
+        sourceRef: normalizeSourceRef(descriptor.sourceRef)
       }
     })
   )
 
+  const edges = Array.isArray(structure.edges) && structure.edges.length > 0
+    ? structure.edges
+    : buildEdgesFromNodeParents(nodes)
+
   return {
     nodes,
-    edges: structure.edges || [],
+    edges,
+    regions: structure.regions || [],
     name: structure.name || 'Untitled'
   }
 }
 
 /**
- * 生成 structure.xml
+ * 生成 structure.xml（仅保留图级信息，不包含节点内容/节点元信息）
  */
 function generateStructureXml(graphData: GraphData): string {
   const builder = new Builder({
@@ -110,32 +302,31 @@ function generateStructureXml(graphData: GraphData): string {
         name: graphData.name,
         createdAt: new Date().toISOString()
       },
-      nodes: {
-        node: graphData.nodes.map(node => ({
+      regions: graphData.regions && graphData.regions.length > 0 ? {
+        region: graphData.regions.map((region) => ({
           $: {
-            id: node.id,
-            x: (node.position?.x ?? 0).toString(),
-            y: (node.position?.y ?? 0).toString()
+            id: region.id,
+            color: region.color
           },
-          parentIds: node.parentIds.length > 0 ? {
-            parent: node.parentIds
-          } : undefined,
-          createdAt: node.createdAt,
-          expansionColor: node.expansionColor,
-          sourceRef: node.sourceRef ? {
-            upstreamFingerprintBase64: node.sourceRef.upstreamFingerprintBase64,
-            rangeStart: node.sourceRef.rangeStart.toString(),
-            rangeEnd: node.sourceRef.rangeEnd.toString()
+          name: region.name,
+          description: region.description,
+          createdAt: region.createdAt,
+          nodes: region.nodeIds.length > 0 ? {
+            node: region.nodeIds
           } : undefined
         }))
-      },
+      } : undefined,
       edges: graphData.edges.length > 0 ? {
-        edge: graphData.edges.map(edge => ({
+        edge: graphData.edges.map((edge) => ({
           $: {
             id: edge.id,
             source: edge.source,
             target: edge.target
-          }
+          },
+          style: edge.style ? {
+            stroke: edge.style.stroke,
+            strokeWidth: edge.style.strokeWidth?.toString()
+          } : undefined
         }))
       } : undefined
     }
@@ -145,50 +336,54 @@ function generateStructureXml(graphData: GraphData): string {
 }
 
 /**
- * 解析 structure.xml
+ * 解析 structure.xml（图级信息）
  */
-async function parseStructureXml(xmlContent: string): Promise<any> {
+async function parseStructureXml(xmlContent: string): Promise<{
+  name: string
+  regions: Region[]
+  edges: Edge[]
+}> {
   const parser = new Parser()
   const result = await parser.parseStringPromise(xmlContent)
 
-  const graph = result.graph
-  const nodes = Array.isArray(graph.nodes?.[0]?.node)
-    ? graph.nodes[0].node
-    : graph.nodes?.[0]?.node
-    ? [graph.nodes[0].node]
-    : []
+  const graph = result.graph || {}
 
-  const edges = graph.edges?.[0]?.edge
+  const edgesRaw = graph.edges?.[0]?.edge
     ? Array.isArray(graph.edges[0].edge)
       ? graph.edges[0].edge
       : [graph.edges[0].edge]
     : []
 
+  const regionsRaw = graph.regions?.[0]?.region
+    ? Array.isArray(graph.regions[0].region)
+      ? graph.regions[0].region
+      : [graph.regions[0].region]
+    : []
+
   return {
     name: graph.metadata?.[0]?.name?.[0] || 'Untitled',
-    nodes: nodes.map((node: any) => ({
-      id: node.$.id,
-      position: {
-        x: parseFloat(node.$.x),
-        y: parseFloat(node.$.y)
-      },
-      parentIds: Array.isArray(node.parentIds?.[0]?.parent)
-        ? node.parentIds[0].parent
-        : node.parentIds?.[0]?.parent
-        ? [node.parentIds[0].parent]
-        : [],
-      createdAt: node.createdAt?.[0] || new Date().toISOString(),
-      expansionColor: node.expansionColor?.[0],
-      sourceRef: node.sourceRef?.[0] ? {
-        upstreamFingerprintBase64: node.sourceRef[0].upstreamFingerprintBase64?.[0] || '',
-        rangeStart: parseInteger(node.sourceRef[0].rangeStart?.[0], 0),
-        rangeEnd: parseInteger(node.sourceRef[0].rangeEnd?.[0], 0)
-      } : undefined
+    regions: regionsRaw.map((region: any) => ({
+      id: parseString(region.$?.id, `region-${Date.now()}`),
+      name: parseString(region.name?.[0], '未命名区域'),
+      color: parseString(region.$?.color, '#c084fc'),
+      description: parseString(region.description?.[0]),
+      createdAt: parseString(region.createdAt?.[0], new Date().toISOString()),
+      nodeIds: Array.isArray(region.nodes?.[0]?.node)
+        ? region.nodes[0].node.map((id: unknown) => parseString(id)).filter(Boolean)
+        : region.nodes?.[0]?.node
+        ? [parseString(region.nodes[0].node)].filter(Boolean)
+        : []
     })),
-    edges: edges.map((edge: any) => ({
-      id: edge.$.id,
-      source: edge.$.source,
-      target: edge.$.target
-    }))
+    edges: edgesRaw.map((edge: any) => ({
+      id: parseString(edge.$?.id),
+      source: parseString(edge.$?.source),
+      target: parseString(edge.$?.target),
+      style: edge.style?.[0]
+        ? {
+            stroke: parseString(edge.style[0].stroke?.[0]) || undefined,
+            strokeWidth: parseNumber(edge.style[0].strokeWidth?.[0], 0) || undefined
+          }
+        : undefined
+    })).filter((edge: Edge) => Boolean(edge.id && edge.source && edge.target))
   }
 }

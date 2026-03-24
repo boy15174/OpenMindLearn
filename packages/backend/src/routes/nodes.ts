@@ -49,6 +49,7 @@ export async function nodeRoutes(fastify: FastifyInstance) {
     return {
       id: Date.now().toString(),
       content,
+      question: text,
       parentId,
       sourceRef
     }

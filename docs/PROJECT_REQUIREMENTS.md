@@ -79,15 +79,33 @@ OpenMindLearn 是一个基于网状知识图谱的交互式学习系统。用户
 **文件结构示例**：
 ```
 knowledge_graph.oml (实际是 ZIP)
-├── structure.xml          # 图谱结构和元数据
+├── structure.xml          # 图级结构和元数据（名称/边/区域）
 ├── nodes/                 # 节点内容目录
-│   ├── node_001.md
-│   ├── node_002.md
-│   └── node_003.md
+│   ├── node_001/
+│   │   ├── node.json      # 节点描述（位置、父关系、question、tags、note、sourceRef、版本索引）
+│   │   ├── current.md
+│   │   └── versions/
+│   │       ├── 01-2026-03-24T10-00-00.000Z.md
+│   │       └── 02-2026-03-24T11-15-00.000Z.md
+│   ├── node_002/
+│   │   ├── node.json
+│   │   ├── current.md
+│   │   └── versions/
+│   └── node_003/
+│       ├── node.json
+│       ├── current.md
+│       └── versions/
 └── resources/             # 资源文件目录
     ├── images/
     └── attachments/
 ```
+
+**格式说明（当前版本）**：
+- 节点正文存储于 `nodes/<nodeId>/current.md`。
+- 节点历史版本存储于 `nodes/<nodeId>/versions/*.md`。
+- 节点属性（含 `question`）统一写入 `nodes/<nodeId>/node.json`，节点目录内数据自闭环。
+- `structure.xml` 不再承载节点属性，也不内嵌历史版本正文。
+- 当前版本**不要求兼容旧版 `.oml` 结构**（例如 `nodes/<id>.md` 或 XML 内嵌版本正文）。
 
 ---
 
