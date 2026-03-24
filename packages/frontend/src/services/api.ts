@@ -1,4 +1,5 @@
 import { Node, SourceReference, Region } from '../types'
+import type { ExpandMode, PromptTemplates } from '../stores/settingsStore'
 
 const API_BASE = '/api'
 
@@ -16,12 +17,14 @@ export async function expandNode(
   parentId: string,
   allNodes?: Node[],
   selectedNodeIds?: string[],
-  sourceRef?: SourceReference
+  sourceRef?: SourceReference,
+  expandMode?: ExpandMode,
+  contextMaxDepth?: number
 ) {
   const res = await fetch(`${API_BASE}/nodes/expand`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, parentId, allNodes, selectedNodeIds, sourceRef })
+    body: JSON.stringify({ text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth })
   })
   return res.json()
 }
@@ -48,6 +51,11 @@ export async function updateLLMConfig(config: {
   apiKey: string
   baseURL: string
   model: string
+  temperature: number
+  maxTokens: number
+  contextMaxDepth: number
+  systemPrompt: string
+  promptTemplates: PromptTemplates
 }) {
   const res = await fetch(`${API_BASE}/config/llm`, {
     method: 'POST',

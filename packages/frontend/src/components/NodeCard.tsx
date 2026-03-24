@@ -9,6 +9,7 @@ import { ContextPanel } from './ContextPanel'
 import { useToastStore } from '../stores/toastStore'
 import type { Node, SourceReference } from '../types'
 import { fingerprintBase64 } from '../utils/textMeta'
+import type { ExpandMode } from '../stores/settingsStore'
 
 interface SourceHighlight extends SourceReference {
   color: string
@@ -121,7 +122,7 @@ interface NodeCardProps {
     searchActive?: boolean
     onGenerate: (content: string) => void
     onSaveContent: (content: string) => void
-    onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference) => void
+    onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) => void
     allNodes?: Node[]
     expansionColor?: string
     sourceHighlights?: SourceHighlight[]
@@ -253,7 +254,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     if (!selectionMenu) return
     setSelectionMenu(null)
     window.getSelection()?.removeAllRanges()
-    await data.onExpand(selectionMenu.text, undefined, selectionMenu.sourceRef)
+    await data.onExpand(selectionMenu.text, undefined, selectionMenu.sourceRef, 'direct')
   }
 
   const handleCustomPrompt = () => {
@@ -276,7 +277,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
     setSelectionMenu(null)
     setShowPromptInput(false)
     window.getSelection()?.removeAllRanges()
-    await data.onExpand(customPrompt, undefined, selectionMenu?.sourceRef)
+    await data.onExpand(customPrompt, undefined, selectionMenu?.sourceRef, 'targeted')
     setCustomPrompt('')
   }
 
@@ -481,7 +482,7 @@ export const NodeCard = memo(({ data }: NodeCardProps) => {
             setSelectionMenu(null)
             window.getSelection()?.removeAllRanges()
             if (text) {
-              data.onExpand(text, selectedNodeIds, sourceRef)
+              data.onExpand(text, selectedNodeIds, sourceRef, 'custom_context')
             }
           }}
           onClose={() => {

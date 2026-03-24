@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { generateContent, generateWithContext, setLLMConfig } from '../services/llm.js'
+import { buildExpandPrompt, generateContent, generateWithContext, getLLMConfig, setLLMConfig } from '../services/llm.js'
 import { buildContextChain, generateContextXml } from '../services/contextService.js'
 import { Node, SourceReference } from '../types/index.js'
 
@@ -11,15 +11,21 @@ export async function nodeRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/api/nodes/expand', async (request, reply) => {
-    const { text, parentId, allNodes, selectedNodeIds, sourceRef } = request.body as {
+    const { text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth } = request.body as {
       text: string
       parentId: string
       allNodes?: Node[]
       selectedNodeIds?: string[]
       sourceRef?: SourceReference
+      expandMode?: 'direct' | 'targeted' | 'custom_context'
+      contextMaxDepth?: number
     }
 
     let content: string
+    const resolvedDepth = Math.max(1, Math.min(50, Number.isFinite(contextMaxDepth)
+      ? Number(contextMaxDepth)
+      : getLLMConfig().contextMaxDepth))
+    const finalPrompt = buildExpandPrompt(text, expandMode || 'direct')
 
     // 如果提供了 allNodes，则使用上下文
     if (allNodes && allNodes.length > 0) {
@@ -32,18 +38,18 @@ export async function nodeRoutes(fastify: FastifyInstance) {
           .map((id) => nodeMap.get(id))
           .filter((node): node is Node => Boolean(node))
       } else {
-        // 否则自动回溯父节点链（最多 10 个）
-        contextNodes = buildContextChain(parentId, allNodes, 10)
+        // 否则自动回溯父节点链（根据配置深度）
+        contextNodes = buildContextChain(parentId, allNodes, resolvedDepth)
       }
 
       // 生成 XML 格式上下文
       const contextXml = generateContextXml(contextNodes)
 
       // 使用带上下文的生成
-      content = await generateWithContext(`请详细解释: ${text}`, contextXml)
+      content = await generateWithContext(finalPrompt, contextXml)
     } else {
       // 没有上下文，直接生成
-      content = await generateContent(`请详细解释: ${text}`)
+      content = await generateContent(finalPrompt)
     }
 
     return {
@@ -56,12 +62,22 @@ export async function nodeRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/api/config/llm', async (request, reply) => {
-    const { apiKey, baseURL, model } = request.body as {
+    const { apiKey, baseURL, model, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates } = request.body as {
       apiKey: string
       baseURL: string
       model: string
+      temperature?: number
+      maxTokens?: number
+      contextMaxDepth?: number
+      systemPrompt?: string
+      promptTemplates?: {
+        directExpand?: string
+        targetedQuestion?: string
+        customContextExpand?: string
+        contextEnvelope?: string
+      }
     }
-    setLLMConfig({ apiKey, baseURL, model })
+    setLLMConfig({ apiKey, baseURL, model, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates })
     return { success: true }
   })
 }

@@ -7,6 +7,7 @@ import { Toolbar } from './Toolbar'
 import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
 import { useGraphStore } from '../stores/graphStore'
 import { useToastStore } from '../stores/toastStore'
+import { useSettingsStore, type ExpandMode } from '../stores/settingsStore'
 import { getExpansionColor } from '../utils/colors'
 import { Plus, X, Eye, Pencil, RefreshCw, ClipboardPaste, Sparkles, Download, Tags, History, Search, Layers, Trash2 } from 'lucide-react'
 import { cn } from '../utils/cn'
@@ -334,6 +335,7 @@ export function Canvas() {
   const { screenToFlowPosition, getNodes, getEdges, setCenter } = useReactFlow()
   const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
+  const { llmSettings } = useSettingsStore()
 
   const refreshNodeRuntimeData = useCallback((rfNodes: any[], edgeList: any[]) => {
     const snapshots = buildNodeSnapshots(rfNodes, edgeList)
@@ -429,7 +431,8 @@ export function Canvas() {
     text: string,
     parentId: string,
     selectedNodeIds?: string[],
-    sourceRef?: SourceReference
+    sourceRef?: SourceReference,
+    expandMode: ExpandMode = 'direct'
   ) => {
     const currentNodes = getNodes()
     const currentEdges = getEdges()
@@ -459,8 +462,8 @@ export function Canvas() {
         sourceRef,
         onGenerate: (c: string) => handleGenerate(newNodeId, c),
         onSaveContent: (c: string) => handleSaveNodeContent(newNodeId, c),
-        onExpand: (nextText: string, selectedIds?: string[], nextSourceRef?: SourceReference) =>
-          handleExpand(nextText, newNodeId, selectedIds, nextSourceRef),
+        onExpand: (nextText: string, selectedIds?: string[], nextSourceRef?: SourceReference, nextExpandMode?: ExpandMode) =>
+          handleExpand(nextText, newNodeId, selectedIds, nextSourceRef, nextExpandMode),
         allNodes,
         sourceHighlights: [] as SourceHighlight[]
       }
@@ -482,7 +485,15 @@ export function Canvas() {
     setEdges((eds) => addEdge(newEdge, eds))
 
     try {
-      const result = await expandNode(text, parentId, allNodes, selectedNodeIds, sourceRef)
+      const result = await expandNode(
+        text,
+        parentId,
+        allNodes,
+        selectedNodeIds,
+        sourceRef,
+        expandMode,
+        llmSettings.contextMaxDepth
+      )
       setNodes((nds) => {
         const nowUpdated = new Date().toISOString()
         const updatedNodes = nds.map((node) =>
@@ -524,7 +535,7 @@ export function Canvas() {
         return refreshNodeRuntimeData(updatedNodes, edgesWithNewEdge)
       })
     }
-  }, [getNodes, getEdges, handleGenerate, handleSaveNodeContent, refreshNodeRuntimeData, setEdges, setNodes])
+  }, [getNodes, getEdges, handleGenerate, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
 
   const createNodeAtPosition = useCallback(
     (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string) => {
@@ -548,8 +559,8 @@ export function Canvas() {
         versions: [] as NodeVersion[],
         onGenerate: (c: string) => handleGenerate(nodeId, c),
         onSaveContent: (c: string) => handleSaveNodeContent(nodeId, c),
-        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
-          handleExpand(text, nodeId, selectedIds, sourceRef),
+        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
+          handleExpand(text, nodeId, selectedIds, sourceRef, expandMode),
         allNodes: [] as Node[],
         sourceHighlights: [] as SourceHighlight[]
       }
@@ -917,8 +928,8 @@ export function Canvas() {
             sourceRef: node.sourceRef,
             onGenerate: (c: string) => handleGenerate(node.id, c),
             onSaveContent: (c: string) => handleSaveNodeContent(node.id, c),
-            onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference) =>
-              handleExpand(text, node.id, selectedIds, sourceRef),
+            onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
+              handleExpand(text, node.id, selectedIds, sourceRef, expandMode),
             allNodes: loadedNodes,
             sourceHighlights: [] as SourceHighlight[]
           }
