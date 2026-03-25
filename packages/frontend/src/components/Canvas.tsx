@@ -1,422 +1,160 @@
 import { useCallback, useState, useEffect, useMemo, useRef } from 'react'
-import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, useReactFlow, BackgroundVariant } from '@xyflow/react'
+import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react'
 import type { Node as RFNode, Viewport } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { NodeCard } from './NodeCard'
 import { Toolbar } from './Toolbar'
-import { generateNode, expandNode, saveFile, loadFile } from '../services/api'
-import { useGraphStore } from '../stores/graphStore'
+import { MenuItem } from './MenuItem'
+import { generateNode } from '../services/api'
 import { useToastStore } from '../stores/toastStore'
-import { useSettingsStore, type ExpandMode } from '../stores/settingsStore'
-import { getExpansionColor } from '../utils/colors'
+import { useSettingsStore } from '../stores/settingsStore'
 import { Plus, X, Eye, Pencil, RefreshCw, ClipboardPaste, Sparkles, Download, Tags, History, Search, Layers, Trash2 } from 'lucide-react'
 import { cn } from '../utils/cn'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Node, SourceReference, Region, NodeVersion } from '../types'
-import { calculateChildNodePosition, calculateInitialNodePosition } from '../utils/nodePosition'
+import type { CanvasMode, MetaEditorState, VersionDialogState, DetailPanelState } from '../types/canvas'
+import { buildDiffLines } from '../utils/search'
+
+import { useCanvasContextMenu } from '../hooks/useCanvasContextMenu'
+import { useCanvasSearch } from '../hooks/useCanvasSearch'
+import { useCanvasRegions } from '../hooks/useCanvasRegions'
+import { useCanvasNodes } from '../hooks/useCanvasNodes'
+import { useCanvasFileIO } from '../hooks/useCanvasFileIO'
 
 const nodeTypes = { custom: NodeCard }
-const NODE_DEFAULT_WIDTH = 380
-const NODE_DEFAULT_HEIGHT = 300
-const NODE_MIN_WIDTH = 280
-const NODE_MIN_HEIGHT = 200
-const REGION_PADDING = 24
-const REGION_DEFAULT_WIDTH = 420
-const REGION_DEFAULT_HEIGHT = 260
-const REGION_MIN_WIDTH = 180
-const REGION_MIN_HEIGHT = 120
-const MAX_NODE_VERSIONS = 3
-type CanvasMode = 'learn' | 'view'
-
-interface SourceHighlight extends SourceReference {
-  color: string
-}
-
-interface SearchResult {
-  nodeId: string
-  score: number
-}
-
-type MenuType = 'pane' | 'node'
-
-interface ContextMenuState {
-  x: number
-  y: number
-  type: MenuType
-  flowPosition?: { x: number; y: number }
-  nodeId?: string
-  nodeContent?: string
-}
-
-interface RegionBox {
-  id: string
-  name: string
-  color: string
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-interface RegionDragState {
-  regionId: string
-  mode: 'move' | 'resize'
-  resizeHandle?: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w'
-  startPointer: { x: number; y: number }
-  startRegion: { x: number; y: number; width: number; height: number }
-  startNodePositions: Record<string, { x: number; y: number }>
-}
-
-interface MetaEditorState {
-  nodeId: string
-  tagsText: string
-  note: string
-}
-
-interface VersionDialogState {
-  nodeId: string
-  versions: NodeVersion[]
-  currentContent: string
-}
-
-interface DetailPanelState {
-  nodeId: string
-  content: string
-  question: string
-}
-
-interface DiffLine {
-  type: 'same' | 'added' | 'removed'
-  text: string
-}
-
-function parseNodeDimension(value: unknown, fallback: number, minimum: number): number {
-  const numeric = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  return Math.max(minimum, numeric)
-}
-
-function getNodeWidth(node: any): number {
-  return parseNodeDimension(
-    node?.width ?? node?.data?.width ?? node?.style?.width,
-    NODE_DEFAULT_WIDTH,
-    NODE_MIN_WIDTH
-  )
-}
-
-function getNodeHeight(node: any): number {
-  return parseNodeDimension(
-    node?.height ?? node?.data?.height ?? node?.style?.height,
-    NODE_DEFAULT_HEIGHT,
-    NODE_MIN_HEIGHT
-  )
-}
-
-function toPlacementNode(node: any): { id: string; position: { x: number; y: number }; width: number; height: number } {
-  return {
-    id: node.id,
-    position: node.position,
-    width: getNodeWidth(node),
-    height: getNodeHeight(node)
-  }
-}
-
-function normalizeNodeForRuntime(node: Node): Node {
-  return {
-    ...node,
-    width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
-    height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
-    createdAt: node.createdAt || new Date().toISOString(),
-    updatedAt: node.updatedAt || node.createdAt || new Date().toISOString(),
-    tags: node.tags || [],
-    note: node.note || '',
-    versions: node.versions || []
-  }
-}
-
-function normalizeRegionsForRuntime(regions?: Region[]): Region[] {
-  return (regions || []).map((region) => ({
-    ...region,
-    x: Number.isFinite(region.x) ? region.x : 0,
-    y: Number.isFinite(region.y) ? region.y : 0,
-    width: Math.max(REGION_MIN_WIDTH, Number.isFinite(region.width) ? region.width : REGION_DEFAULT_WIDTH),
-    height: Math.max(REGION_MIN_HEIGHT, Number.isFinite(region.height) ? region.height : REGION_DEFAULT_HEIGHT),
-    createdAt: region.createdAt || new Date().toISOString(),
-    description: region.description || ''
-  }))
-}
-
-function pointInRegion(point: { x: number; y: number }, region: Pick<Region, 'x' | 'y' | 'width' | 'height'>): boolean {
-  return (
-    point.x >= region.x &&
-    point.x <= region.x + region.width &&
-    point.y >= region.y &&
-    point.y <= region.y + region.height
-  )
-}
-
-function resizeRegionFromHandle(
-  start: { x: number; y: number; width: number; height: number },
-  handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w',
-  dx: number,
-  dy: number
-): { x: number; y: number; width: number; height: number } {
-  const right = start.x + start.width
-  const bottom = start.y + start.height
-
-  if (handle === 'n') {
-    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
-    return { x: start.x, y: bottom - height, width: start.width, height }
-  }
-
-  if (handle === 'e') {
-    const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
-    return { x: start.x, y: start.y, width, height: start.height }
-  }
-
-  if (handle === 's') {
-    const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
-    return { x: start.x, y: start.y, width: start.width, height }
-  }
-
-  if (handle === 'w') {
-    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
-    return { x: right - width, y: start.y, width, height: start.height }
-  }
-
-  if (handle === 'nw') {
-    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
-    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
-    return { x: right - width, y: bottom - height, width, height }
-  }
-
-  if (handle === 'ne') {
-    const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
-    const height = Math.max(REGION_MIN_HEIGHT, start.height - dy)
-    return { x: start.x, y: bottom - height, width, height }
-  }
-
-  if (handle === 'sw') {
-    const width = Math.max(REGION_MIN_WIDTH, start.width - dx)
-    const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
-    return { x: right - width, y: start.y, width, height }
-  }
-
-  const width = Math.max(REGION_MIN_WIDTH, start.width + dx)
-  const height = Math.max(REGION_MIN_HEIGHT, start.height + dy)
-  return { x: start.x, y: start.y, width, height }
-}
-
-function inferRegionRectFromNodeIds(nodeIds: string[], nodes: any[]): { x: number; y: number; width: number; height: number } | null {
-  if (nodeIds.length === 0) return null
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
-  const linkedNodes = nodeIds
-    .map((nodeId) => nodeMap.get(nodeId))
-    .filter((node): node is any => Boolean(node))
-
-  if (linkedNodes.length === 0) return null
-
-  const xs = linkedNodes.map((node) => node.position.x)
-  const ys = linkedNodes.map((node) => node.position.y)
-  const minX = Math.min(...xs)
-  const minY = Math.min(...ys)
-  const maxX = Math.max(...linkedNodes.map((node) => node.position.x + getNodeWidth(node)))
-  const maxY = Math.max(...linkedNodes.map((node) => node.position.y + getNodeHeight(node)))
-
-  return {
-    x: minX - REGION_PADDING,
-    y: minY - REGION_PADDING,
-    width: maxX - minX + REGION_PADDING * 2,
-    height: maxY - minY + REGION_PADDING * 2
-  }
-}
-
-function normalizeRegionsWithNodeFallback(regions: Region[] | undefined, nodes: any[]): Region[] {
-  return (regions || []).map((item) => {
-    const raw = item as Region & { nodeIds?: string[] }
-    const hasGeometry = Number.isFinite(raw.x) && Number.isFinite(raw.y) && Number.isFinite(raw.width) && Number.isFinite(raw.height)
-    const inferred = hasGeometry ? null : inferRegionRectFromNodeIds(raw.nodeIds || [], nodes)
-
-    return {
-      ...item,
-      x: hasGeometry ? raw.x : inferred?.x ?? 0,
-      y: hasGeometry ? raw.y : inferred?.y ?? 0,
-      width: Math.max(REGION_MIN_WIDTH, hasGeometry ? raw.width : inferred?.width ?? REGION_DEFAULT_WIDTH),
-      height: Math.max(REGION_MIN_HEIGHT, hasGeometry ? raw.height : inferred?.height ?? REGION_DEFAULT_HEIGHT),
-      createdAt: item.createdAt || new Date().toISOString(),
-      description: item.description || ''
-    }
-  })
-}
-
-function parseTags(tagsText: string): string[] {
-  const values = tagsText
-    .split(/[,，\n]/g)
-    .map((item) => item.trim())
-    .filter(Boolean)
-  return Array.from(new Set(values)).slice(0, 30)
-}
-
-function getNextVersions(versions: NodeVersion[], previousContent: string): NodeVersion[] {
-  const trimmed = previousContent.trim()
-  if (!trimmed) return versions
-  const latest = versions[versions.length - 1]
-  if (latest?.content === previousContent) return versions
-  const next = [...versions, { content: previousContent, timestamp: new Date().toISOString() }]
-  return next.slice(-MAX_NODE_VERSIONS)
-}
-
-function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
-  const now = new Date().toISOString()
-  return rfNodes.map((n) => ({
-    id: n.id,
-    content: n.data.content || '',
-    question: n.data.question || '',
-    position: n.position,
-    width: getNodeWidth(n),
-    height: getNodeHeight(n),
-    parentIds: rfEdges.filter((e) => e.target === n.id).map((e) => e.source),
-    createdAt: n.data.createdAt || now,
-    updatedAt: n.data.updatedAt || n.data.createdAt || now,
-    tags: n.data.tags || [],
-    note: n.data.note || '',
-    versions: n.data.versions || [],
-    expansionColor: n.data.expansionColor,
-    sourceRef: n.data.sourceRef
-  }))
-}
-
-function buildSourceHighlightMap(nodes: Node[]): Map<string, SourceHighlight[]> {
-  const map = new Map<string, SourceHighlight[]>()
-  nodes.forEach((node) => {
-    const parentId = node.parentIds[0]
-    if (!parentId || !node.sourceRef) return
-    const current = map.get(parentId) || []
-    current.push({
-      ...node.sourceRef,
-      color: node.expansionColor || '#3b82f6'
-    })
-    map.set(parentId, current)
-  })
-  return map
-}
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function buildDiffLines(oldText: string, newText: string): DiffLine[] {
-  const a = oldText.split(/\r?\n/)
-  const b = newText.split(/\r?\n/)
-  const n = a.length
-  const m = b.length
-
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
-  for (let i = n - 1; i >= 0; i -= 1) {
-    for (let j = m - 1; j >= 0; j -= 1) {
-      if (a[i] === b[j]) {
-        dp[i][j] = dp[i + 1][j + 1] + 1
-      } else {
-        dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
-      }
-    }
-  }
-
-  const lines: DiffLine[] = []
-  let i = 0
-  let j = 0
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      lines.push({ type: 'same', text: a[i] })
-      i += 1
-      j += 1
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      lines.push({ type: 'removed', text: a[i] })
-      i += 1
-    } else {
-      lines.push({ type: 'added', text: b[j] })
-      j += 1
-    }
-  }
-
-  while (i < n) {
-    lines.push({ type: 'removed', text: a[i] })
-    i += 1
-  }
-  while (j < m) {
-    lines.push({ type: 'added', text: b[j] })
-    j += 1
-  }
-
-  return lines
-}
 
 export function Canvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<any>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([])
-  const [regions, setRegions] = useState<Region[]>([])
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('learn')
   const [detailPanel, setDetailPanel] = useState<DetailPanelState | null>(null)
   const [detailFontSize, setDetailFontSize] = useState(15)
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [initialInput, setInitialInput] = useState('')
   const [initialGenerating, setInitialGenerating] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeSearchIndex, setActiveSearchIndex] = useState(-1)
-  const [showRegionPanel, setShowRegionPanel] = useState(false)
   const [metaEditor, setMetaEditor] = useState<MetaEditorState | null>(null)
   const [versionDialog, setVersionDialog] = useState<VersionDialogState | null>(null)
   const [selectedVersionIndex, setSelectedVersionIndex] = useState(0)
-  const [newRegionName, setNewRegionName] = useState('')
-  const [newRegionColor, setNewRegionColor] = useState('#22c55e')
-  const [newRegionDescription, setNewRegionDescription] = useState('')
-  const [manualRegionNodeIds, setManualRegionNodeIds] = useState('')
-  const [regionDrag, setRegionDrag] = useState<RegionDragState | null>(null)
-  const [regionTitleEdit, setRegionTitleEdit] = useState<{ regionId: string; draft: string } | null>(null)
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const canvasRef = useRef<HTMLDivElement>(null)
-  const skipDirtyFlagRef = useRef(false)
 
-  const { screenToFlowPosition, getNodes, getEdges, setCenter } = useReactFlow()
-  const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
-  const { showToast } = useToastStore()
-  const llmSettings = useSettingsStore((state) => state.llmSettings)
   const theme = useSettingsStore((state) => state.uiSettings.theme)
+  const { showToast } = useToastStore()
 
-  const refreshNodeRuntimeData = useCallback((rfNodes: any[], edgeList: any[]) => {
-    const snapshots = buildNodeSnapshots(rfNodes, edgeList)
-    const highlightMap = buildSourceHighlightMap(snapshots)
-    return rfNodes.map((node) => ({
+  // --- Hook 4: Nodes (must come before regions since regions needs nodes) ---
+  // We pass a placeholder regions initially; the dirty-flag effect inside
+  // useCanvasNodes depends on `regions` which we get from useCanvasRegions.
+  // However, useCanvasRegions needs `nodes` and `setNodes` from useCanvasNodes.
+  // To break the cycle, useCanvasNodes takes regions as a parameter and we
+  // wire it up after useCanvasRegions via a ref-based approach.
+  // Actually, looking at the original code, the dirty flag effect depends on
+  // [nodes, edges, regions, setDirty]. We need regions from useCanvasRegions.
+  // But useCanvasRegions needs nodes/setNodes from useCanvasNodes.
+  // Solution: useCanvasNodes takes regions as param. We'll use a state-level
+  // indirection: useCanvasNodes creates nodes first, then useCanvasRegions
+  // uses those nodes, and we pass regions back into useCanvasNodes.
+  // Since hooks can't be called conditionally, we use a ref to hold regions.
+  const regionsRef = useRef<any[]>([])
+
+  const {
+    nodes, setNodes, onNodesChange,
+    edges, setEdges, onEdgesChange,
+    skipDirtyFlagRef,
+    refreshNodeRuntimeData,
+    getCanvasCenterFlowPosition,
+    handleSaveNodeContent,
+    handleGenerate,
+    handleExpand,
+    createFirstNode,
+    createNode,
+    triggerNodeEdit,
+    handleSaveNodeMeta: handleSaveNodeMetaRaw,
+    handleRestoreVersion: handleRestoreVersionRaw,
+    handleExportNode
+  } = useCanvasNodes(canvasRef, regionsRef.current)
+
+  // --- Derived: selectedNodeIds (needed by useCanvasRegions) ---
+  const selectedNodeIds = useMemo(() => {
+    return nodes.filter((node) => node.selected).map((node) => node.id)
+  }, [nodes])
+
+  // --- Hook 3: Regions ---
+  const {
+    regions, setRegions,
+    regionDrag, setRegionDrag,
+    regionTitleEdit, setRegionTitleEdit,
+    showRegionPanel, setShowRegionPanel,
+    newRegionName, setNewRegionName,
+    newRegionColor, setNewRegionColor,
+    newRegionDescription, setNewRegionDescription,
+    manualRegionNodeIds, setManualRegionNodeIds,
+    regionBoxes, regionCoveredNodeCount,
+    handleCreateRegion, handleUpdateRegion, handleDeleteRegion,
+    startRegionTitleEdit, commitRegionTitleEdit,
+    handleStartRegionDrag, handleStartRegionResize
+  } = useCanvasRegions(nodes, setNodes, canvasMode, selectedNodeIds, getCanvasCenterFlowPosition)
+
+  // Keep regionsRef in sync so dirty-flag effect in useCanvasNodes sees current regions
+  regionsRef.current = regions
+
+  // --- Hook 1: Context Menu ---
+  const {
+    contextMenu, setContextMenu,
+    handlePaneContextMenu, handleNodeContextMenu
+  } = useCanvasContextMenu(canvasMode)
+
+  // --- Hook 2: Search ---
+  const {
+    searchQuery, setSearchQuery,
+    activeSearchIndex,
+    searchResults,
+    highlightedNodeSet,
+    activeSearchNodeId,
+    matchedPreview,
+    focusSearchResult,
+    resetSearch
+  } = useCanvasSearch(nodes, viewport)
+
+  // --- Hook 5: File IO ---
+  const { handleSave, handleLoad, handleNew } = useCanvasFileIO({
+    nodes,
+    edges,
+    regions,
+    setNodes,
+    setEdges,
+    setRegions,
+    skipDirtyFlagRef,
+    refreshNodeRuntimeData,
+    handleGenerate,
+    handleSaveNodeContent,
+    handleExpand,
+    resetSearch,
+    setDetailPanel,
+    setMetaEditor,
+    setVersionDialog,
+    setShowRegionPanel,
+    setInitialInput,
+    setInitialGenerating
+  })
+
+  // --- Derived computations ---
+  const renderedNodes = useMemo(() => {
+    return nodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
-        allNodes: snapshots,
-        sourceHighlights: highlightMap.get(node.id) || []
+        mode: canvasMode,
+        searchMatched: highlightedNodeSet.has(node.id),
+        searchActive: activeSearchNodeId === node.id
       }
     }))
-  }, [])
+  }, [nodes, highlightedNodeSet, activeSearchNodeId, canvasMode])
 
-  useEffect(() => {
-    if (skipDirtyFlagRef.current) {
-      skipDirtyFlagRef.current = false
-      return
-    }
+  const selectedDiffLines = useMemo(() => {
+    if (!versionDialog) return []
+    const version = versionDialog.versions[selectedVersionIndex]
+    if (!version) return []
+    return buildDiffLines(version.content, versionDialog.currentContent)
+  }, [selectedVersionIndex, versionDialog])
 
-    if (nodes.length === 0 && edges.length === 0 && regions.length === 0) {
-      return
-    }
-
-    setDirty(true)
-  }, [nodes, edges, regions, setDirty])
-
-  useEffect(() => {
-    if (!contextMenu) return
-    const close = () => setContextMenu(null)
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
-  }, [contextMenu])
-
+  // --- Mode-change effect ---
   useEffect(() => {
     setContextMenu(null)
     setRegionDrag(null)
@@ -439,8 +177,9 @@ export function Canvas() {
       setMetaEditor(null)
       setVersionDialog(null)
     }
-  }, [canvasMode, setNodes])
+  }, [canvasMode, setNodes, setContextMenu, setRegionDrag, setRegionTitleEdit, setShowRegionPanel])
 
+  // --- Thin handlers ---
   const openNodeDetailById = useCallback((nodeId: string) => {
     const node = nodes.find((item) => item.id === nodeId)
     if (!node) return
@@ -451,653 +190,42 @@ export function Canvas() {
     })
   }, [nodes])
 
-  const getCanvasCenterFlowPosition = useCallback(() => {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return { x: 200, y: 120 }
-    return screenToFlowPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: RFNode) => {
+    if (canvasMode !== 'view') return
+    openNodeDetailById(node.id)
+  }, [canvasMode, openNodeDetailById])
+
+  const openNodeMetaEditor = useCallback((nodeId: string) => {
+    const node = nodes.find((item) => item.id === nodeId)
+    if (!node) return
+    setMetaEditor({
+      nodeId,
+      tagsText: (node.data.tags || []).join(', '),
+      note: node.data.note || ''
     })
-  }, [screenToFlowPosition])
-
-  const handleSaveNodeContent = useCallback((nodeId: string, nextContent: string) => {
-    setNodes((nds) => {
-      let changed = false
-      const now = new Date().toISOString()
-      const nextNodes = nds.map((node) => {
-        if (node.id !== nodeId) return node
-        const previousContent = node.data.content || ''
-        if (previousContent === nextContent) return node
-        changed = true
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            content: nextContent,
-            isEditing: false,
-            updatedAt: now,
-            versions: getNextVersions(node.data.versions || [], previousContent)
-          }
-        }
-      })
-
-      if (!changed) return nds
-      return refreshNodeRuntimeData(nextNodes, getEdges())
-    })
-  }, [getEdges, refreshNodeRuntimeData, setNodes])
-
-  const handleGenerate = useCallback(async (nodeId: string, content: string) => {
-    const result = await generateNode(content)
-    setNodes((nds) => {
-      const now = new Date().toISOString()
-      const nextNodes = nds.map((node) => {
-        if (node.id !== nodeId) return node
-        const previousContent = node.data.content || ''
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            content: result.content,
-            isEditing: false,
-            updatedAt: now,
-            versions: getNextVersions(node.data.versions || [], previousContent)
-          }
-        }
-      })
-      return refreshNodeRuntimeData(nextNodes, getEdges())
-    })
-  }, [getEdges, refreshNodeRuntimeData, setNodes])
-
-  const handleExpand = useCallback(async (
-    text: string,
-    parentId: string,
-    selectedNodeIds?: string[],
-    sourceRef?: SourceReference,
-    expandMode: ExpandMode = 'direct'
-  ) => {
-    const currentNodes = getNodes()
-    const currentEdges = getEdges()
-    const allNodes: Node[] = buildNodeSnapshots(currentNodes, currentEdges)
-
-    const newNodeId = `node-${Date.now()}`
-    const relationshipId = `${parentId}-${Date.now()}`
-    const expansionColor = getExpansionColor(relationshipId)
-    const parentNode = currentNodes.find((n) => n.id === parentId)
-    const now = new Date().toISOString()
-
-    const placeholderNode = {
-      id: newNodeId,
-      type: 'custom',
-      position: calculateChildNodePosition(
-        parentNode ? toPlacementNode(parentNode) : undefined,
-        currentNodes.map(toPlacementNode),
-        { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
-      ),
-      style: {
-        width: NODE_DEFAULT_WIDTH,
-        height: NODE_DEFAULT_HEIGHT
-      },
-      data: {
-        content: '生成中...',
-        question: text,
-        nodeId: newNodeId,
-        width: NODE_DEFAULT_WIDTH,
-        height: NODE_DEFAULT_HEIGHT,
-        isGenerating: true,
-        createdAt: now,
-        updatedAt: now,
-        tags: [],
-        note: '',
-        versions: [] as NodeVersion[],
-        expansionColor,
-        sourceRef,
-        onGenerate: (c: string) => handleGenerate(newNodeId, c),
-        onSaveContent: (c: string) => handleSaveNodeContent(newNodeId, c),
-        onExpand: (nextText: string, selectedIds?: string[], nextSourceRef?: SourceReference, nextExpandMode?: ExpandMode) =>
-          handleExpand(nextText, newNodeId, selectedIds, nextSourceRef, nextExpandMode),
-        allNodes,
-        sourceHighlights: [] as SourceHighlight[]
-      }
-    }
-
-    const newEdge = {
-      id: `e${parentId}-${newNodeId}`,
-      source: parentId,
-      target: newNodeId,
-      style: { stroke: expansionColor, strokeWidth: 2 }
-    }
-
-    const edgesWithNewEdge = [...currentEdges, newEdge]
-
-    setNodes((nds) => {
-      const nextNodes = [...nds, placeholderNode]
-      return refreshNodeRuntimeData(nextNodes, edgesWithNewEdge)
-    })
-    setEdges((eds) => addEdge(newEdge, eds))
-
-    try {
-      const result = await expandNode(
-        text,
-        parentId,
-        allNodes,
-        selectedNodeIds,
-        sourceRef,
-        expandMode,
-        llmSettings.contextMaxDepth
-      )
-      setNodes((nds) => {
-        const nowUpdated = new Date().toISOString()
-        const updatedNodes = nds.map((node) =>
-          node.id === newNodeId
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  content: result.content,
-                  question: text,
-                  updatedAt: nowUpdated,
-                  isGenerating: false,
-                  sourceRef: result.sourceRef || sourceRef
-                }
-              }
-            : node
-        )
-        return refreshNodeRuntimeData(updatedNodes, edgesWithNewEdge)
-      })
-    } catch (error) {
-      console.error('Failed to expand node:', error)
-      setNodes((nds) => {
-        const nowUpdated = new Date().toISOString()
-        const updatedNodes = nds.map((node) =>
-          node.id === newNodeId
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  content: '生成失败，请重试',
-                  question: text,
-                  updatedAt: nowUpdated,
-                  isGenerating: false,
-                  sourceRef
-                }
-              }
-            : node
-        )
-        return refreshNodeRuntimeData(updatedNodes, edgesWithNewEdge)
-      })
-    }
-  }, [getNodes, getEdges, handleGenerate, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
-
-  const createNodeAtPosition = useCallback(
-    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string) => {
-    const nodeId = Date.now().toString()
-    const currentEdges = getEdges()
-    const now = new Date().toISOString()
-
-    const newNode = {
-      id: nodeId,
-      type: 'custom',
-      position,
-      style: {
-        width: NODE_DEFAULT_WIDTH,
-        height: NODE_DEFAULT_HEIGHT
-      },
-      data: {
-        content,
-        question: question || '',
-        isEditing,
-        nodeId,
-        width: NODE_DEFAULT_WIDTH,
-        height: NODE_DEFAULT_HEIGHT,
-        createdAt: now,
-        updatedAt: now,
-        tags: [] as string[],
-        note: '',
-        versions: [] as NodeVersion[],
-        onGenerate: (c: string) => handleGenerate(nodeId, c),
-        onSaveContent: (c: string) => handleSaveNodeContent(nodeId, c),
-        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
-          handleExpand(text, nodeId, selectedIds, sourceRef, expandMode),
-        allNodes: [] as Node[],
-        sourceHighlights: [] as SourceHighlight[]
-      }
-    }
-
-    setNodes((nds) => {
-      const nextNodes = [...nds, newNode]
-      return refreshNodeRuntimeData(nextNodes, currentEdges)
-    })
-  }, [getEdges, handleGenerate, handleExpand, handleSaveNodeContent, refreshNodeRuntimeData, setNodes])
-
-  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string) => {
-    const center = getCanvasCenterFlowPosition()
-    const position = calculateInitialNodePosition(
-      getNodes().map(toPlacementNode),
-      center,
-      { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
-    )
-    createNodeAtPosition(position, content, isEditing, question)
-  }, [createNodeAtPosition, getCanvasCenterFlowPosition, getNodes])
-
-  const searchResults = useMemo<SearchResult[]>(() => {
-    const query = searchQuery.trim().toLowerCase()
-    if (!query) return []
-
-    const results: SearchResult[] = []
-    nodes.forEach((node) => {
-      const content = String(node.data.content || '').toLowerCase()
-      const note = String(node.data.note || '').toLowerCase()
-      const tags = (node.data.tags || []).join(' ').toLowerCase()
-
-      const indexes = [content.indexOf(query), note.indexOf(query), tags.indexOf(query)].filter((idx) => idx >= 0)
-      if (indexes.length > 0) {
-        results.push({ nodeId: node.id, score: Math.min(...indexes) })
-      }
-    })
-
-    return results.sort((a, b) => a.score - b.score)
-  }, [nodes, searchQuery])
-
-  useEffect(() => {
-    if (searchResults.length === 0) {
-      setActiveSearchIndex(-1)
-      return
-    }
-
-    setActiveSearchIndex((prev) => {
-      if (prev >= 0 && prev < searchResults.length) return prev
-      return 0
-    })
-  }, [searchResults.length])
-
-  const activeSearchNodeId = activeSearchIndex >= 0 ? searchResults[activeSearchIndex]?.nodeId : undefined
-
-  const highlightedNodeSet = useMemo(() => {
-    return new Set(searchResults.map((item) => item.nodeId))
-  }, [searchResults])
-
-  const renderedNodes = useMemo(() => {
-    return nodes.map((node) => ({
-      ...node,
-      data: {
-        ...node.data,
-        mode: canvasMode,
-        searchMatched: highlightedNodeSet.has(node.id),
-        searchActive: activeSearchNodeId === node.id
-      }
-    }))
-  }, [nodes, highlightedNodeSet, activeSearchNodeId, canvasMode])
-
-  const selectedNodeIds = useMemo(() => {
-    return nodes.filter((node) => node.selected).map((node) => node.id)
   }, [nodes])
 
-  const regionBoxes = useMemo<RegionBox[]>(() => {
-    return normalizeRegionsForRuntime(regions).map((region) => ({
-      id: region.id,
-      name: region.name,
-      color: region.color,
-      x: region.x,
-      y: region.y,
-      width: region.width,
-      height: region.height
-    }))
-  }, [regions])
-
-  const regionCoveredNodeCount = useMemo(() => {
-    const map = new Map<string, number>()
-    regionBoxes.forEach((box) => {
-      const count = nodes.filter((node) => {
-        const width = getNodeWidth(node)
-        const height = getNodeHeight(node)
-        const center = {
-          x: node.position.x + width / 2,
-          y: node.position.y + height / 2
-        }
-        return pointInRegion(center, box)
-      }).length
-      map.set(box.id, count)
+  const openVersionDialog = useCallback((nodeId: string) => {
+    const node = nodes.find((item) => item.id === nodeId)
+    if (!node) return
+    const versions = node.data.versions || []
+    setVersionDialog({
+      nodeId,
+      versions,
+      currentContent: node.data.content || ''
     })
-    return map
-  }, [nodes, regionBoxes])
+    setSelectedVersionIndex(Math.max(0, versions.length - 1))
+  }, [nodes])
 
-  const focusSearchResult = useCallback((nextIndex: number) => {
-    if (searchResults.length === 0) return
-    const normalized = ((nextIndex % searchResults.length) + searchResults.length) % searchResults.length
-    setActiveSearchIndex(normalized)
+  const handleSaveNodeMeta = useCallback(() => {
+    if (!metaEditor) return
+    handleSaveNodeMetaRaw(metaEditor, () => setMetaEditor(null))
+  }, [metaEditor, handleSaveNodeMetaRaw])
 
-    const targetNodeId = searchResults[normalized].nodeId
-    const targetNode = nodes.find((node) => node.id === targetNodeId)
-    if (!targetNode) return
-
-    setCenter(targetNode.position.x + getNodeWidth(targetNode) / 2, targetNode.position.y + getNodeHeight(targetNode) / 2, {
-      zoom: Math.max(viewport.zoom, 0.9),
-      duration: 280
-    })
-  }, [nodes, searchResults, setCenter, viewport.zoom])
-
-  const handleCreateRegion = useCallback(() => {
-    const parsedManualIds = manualRegionNodeIds
-      .split(/[,，\n]/g)
-      .map((item) => item.trim())
-      .filter(Boolean)
-
-    const sourceIds = parsedManualIds.length > 0 ? parsedManualIds : selectedNodeIds
-    const validNodeIdSet = new Set(nodes.map((node) => node.id))
-    const validIds = Array.from(new Set(sourceIds)).filter((id) => validNodeIdSet.has(id))
-    const inferredRect = inferRegionRectFromNodeIds(validIds, nodes)
-    const center = getCanvasCenterFlowPosition()
-
-    const region: Region = {
-      id: `region-${Date.now()}`,
-      name: newRegionName.trim() || `区域 ${regions.length + 1}`,
-      color: newRegionColor,
-      description: newRegionDescription.trim(),
-      x: inferredRect?.x ?? center.x - REGION_DEFAULT_WIDTH / 2,
-      y: inferredRect?.y ?? center.y - REGION_DEFAULT_HEIGHT / 2,
-      width: inferredRect?.width ?? REGION_DEFAULT_WIDTH,
-      height: inferredRect?.height ?? REGION_DEFAULT_HEIGHT,
-      createdAt: new Date().toISOString()
-    }
-
-    setRegions((prev) => [...prev, region])
-    setNewRegionName('')
-    setNewRegionDescription('')
-    setManualRegionNodeIds('')
-    showToast('区域已创建', 'success')
-  }, [getCanvasCenterFlowPosition, manualRegionNodeIds, newRegionColor, newRegionDescription, newRegionName, nodes, regions.length, selectedNodeIds, showToast])
-
-  const handleUpdateRegion = useCallback((regionId: string, patch: Partial<Region>) => {
-    setRegions((prev) =>
-      prev.map((region) => {
-        if (region.id !== regionId) return region
-        const next = { ...region, ...patch }
-        return {
-          ...next,
-          x: Number.isFinite(next.x) ? next.x : region.x,
-          y: Number.isFinite(next.y) ? next.y : region.y,
-          width: Math.max(REGION_MIN_WIDTH, Number.isFinite(next.width) ? next.width : region.width),
-          height: Math.max(REGION_MIN_HEIGHT, Number.isFinite(next.height) ? next.height : region.height)
-        }
-      })
-    )
-  }, [])
-
-  const handleDeleteRegion = useCallback((regionId: string) => {
-    setRegions((prev) => prev.filter((region) => region.id !== regionId))
-  }, [])
-
-  const startRegionTitleEdit = useCallback((regionId: string, currentName: string) => {
-    setRegionDrag(null)
-    setRegionTitleEdit({
-      regionId,
-      draft: currentName
-    })
-  }, [])
-
-  const commitRegionTitleEdit = useCallback(() => {
-    if (!regionTitleEdit) return
-    const nextName = regionTitleEdit.draft.trim()
-    if (nextName) {
-      handleUpdateRegion(regionTitleEdit.regionId, { name: nextName })
-    }
-    setRegionTitleEdit(null)
-  }, [handleUpdateRegion, regionTitleEdit])
-
-  useEffect(() => {
-    if (!regionTitleEdit) return
-    const exists = regions.some((region) => region.id === regionTitleEdit.regionId)
-    if (!exists) setRegionTitleEdit(null)
-  }, [regionTitleEdit, regions])
-
-  const handleStartRegionDrag = useCallback((event: React.MouseEvent, box: RegionBox) => {
-    if (canvasMode !== 'learn') return
-    event.preventDefault()
-    event.stopPropagation()
-
-    const startPointer = screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY
-    })
-
-    const startNodePositions: Record<string, { x: number; y: number }> = {}
-    nodes.forEach((node) => {
-      const width = getNodeWidth(node)
-      const height = getNodeHeight(node)
-      const center = {
-        x: node.position.x + width / 2,
-        y: node.position.y + height / 2
-      }
-      if (pointInRegion(center, box)) {
-        startNodePositions[node.id] = { ...node.position }
-      }
-    })
-
-    setRegionDrag({
-      regionId: box.id,
-      mode: 'move',
-      startPointer,
-      startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
-      startNodePositions
-    })
-  }, [canvasMode, nodes, screenToFlowPosition])
-
-  const handleStartRegionResize = useCallback(
-    (event: React.MouseEvent, box: RegionBox, handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w') => {
-      if (canvasMode !== 'learn') return
-      event.preventDefault()
-      event.stopPropagation()
-
-      const startPointer = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY
-      })
-
-      setRegionDrag({
-        regionId: box.id,
-        mode: 'resize',
-        resizeHandle: handle,
-        startPointer,
-        startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
-        startNodePositions: {}
-      })
-    },
-    [canvasMode, screenToFlowPosition]
-  )
-
-  useEffect(() => {
-    if (!regionDrag) return
-
-    const onMouseMove = (event: MouseEvent) => {
-      const pointer = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY
-      })
-      const dx = pointer.x - regionDrag.startPointer.x
-      const dy = pointer.y - regionDrag.startPointer.y
-
-      if (regionDrag.mode === 'move') {
-        setRegions((prev) =>
-          prev.map((region) =>
-            region.id === regionDrag.regionId
-              ? { ...region, x: regionDrag.startRegion.x + dx, y: regionDrag.startRegion.y + dy }
-              : region
-          )
-        )
-
-        const movingNodeIds = new Set(Object.keys(regionDrag.startNodePositions))
-        if (movingNodeIds.size === 0) return
-
-        setNodes((nds) =>
-          nds.map((node) => {
-            const startPosition = regionDrag.startNodePositions[node.id]
-            if (!startPosition) return node
-            return {
-              ...node,
-              position: {
-                x: startPosition.x + dx,
-                y: startPosition.y + dy
-              }
-            }
-          })
-        )
-        return
-      }
-
-      if (regionDrag.mode === 'resize' && regionDrag.resizeHandle) {
-        const nextRegion = resizeRegionFromHandle(regionDrag.startRegion, regionDrag.resizeHandle, dx, dy)
-        setRegions((prev) =>
-          prev.map((region) =>
-            region.id === regionDrag.regionId
-              ? { ...region, ...nextRegion }
-              : region
-          )
-        )
-      }
-    }
-
-    const onMouseUp = () => {
-      setRegionDrag(null)
-    }
-
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [regionDrag, screenToFlowPosition, setNodes])
-
-  const handleSave = async () => {
-    try {
-      const graphNodes: Node[] = nodes.map((node) => ({
-        id: node.id,
-        content: node.data.content || '',
-        question: node.data.question || '',
-        position: node.position,
-        width: getNodeWidth(node),
-        height: getNodeHeight(node),
-        parentIds: edges.filter((edge) => edge.target === node.id).map((edge) => edge.source),
-        createdAt: node.data.createdAt || new Date().toISOString(),
-        updatedAt: node.data.updatedAt,
-        tags: node.data.tags || [],
-        note: node.data.note || '',
-        versions: node.data.versions || [],
-        expansionColor: node.data.expansionColor,
-        sourceRef: node.data.sourceRef
-      }))
-
-      const result = await saveFile(graphNodes, edges, fileName, regions)
-      const link = document.createElement('a')
-      link.href = `data:application/zip;base64,${result.data}`
-      link.download = `${fileName}.oml`
-      link.click()
-
-      setDirty(false)
-      showToast('文件保存成功！', 'success')
-    } catch (error) {
-      console.error('保存失败:', error)
-      showToast('保存失败，请重试', 'error')
-    }
-  }
-
-  const handleLoad = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.oml'
-
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
-
-      try {
-        const arrayBuffer = await file.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
-        const result = await loadFile(base64)
-
-        const loadedNodes: Node[] = (result.nodes || []).map((node: Node) => normalizeNodeForRuntime(node))
-        const loadedRegions = normalizeRegionsWithNodeFallback(result.regions, loadedNodes)
-
-        skipDirtyFlagRef.current = true
-        loadGraph({ nodes: loadedNodes, name: result.name, regions: loadedRegions })
-
-        const rfNodes = loadedNodes.map((node) => ({
-          id: node.id,
-          type: 'custom',
-          position: node.position,
-          style: {
-            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
-            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT)
-          },
-          data: {
-            content: node.content,
-            question: node.question || '',
-            nodeId: node.id,
-            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
-            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
-            createdAt: node.createdAt,
-            updatedAt: node.updatedAt,
-            tags: node.tags || [],
-            note: node.note || '',
-            versions: node.versions || [],
-            expansionColor: node.expansionColor,
-            sourceRef: node.sourceRef,
-            onGenerate: (c: string) => handleGenerate(node.id, c),
-            onSaveContent: (c: string) => handleSaveNodeContent(node.id, c),
-            onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
-              handleExpand(text, node.id, selectedIds, sourceRef, expandMode),
-            allNodes: loadedNodes,
-            sourceHighlights: [] as SourceHighlight[]
-          }
-        }))
-
-        const loadedEdges = (result.edges || []).map((edge: any) => {
-          if (edge.style) return edge
-          const childNode = loadedNodes.find((node) => node.id === edge.target)
-          return {
-            ...edge,
-            style: childNode?.expansionColor
-              ? { stroke: childNode.expansionColor, strokeWidth: 2 }
-              : undefined
-          }
-        })
-
-        setNodes(refreshNodeRuntimeData(rfNodes, loadedEdges))
-        setEdges(loadedEdges)
-        setRegions(loadedRegions)
-        setSearchQuery('')
-        setActiveSearchIndex(-1)
-        setDetailPanel(null)
-        setDirty(false)
-        showToast('文件加载成功！', 'success')
-      } catch (error) {
-        console.error('加载失败:', error)
-        showToast('加载失败，请检查文件格式', 'error')
-      }
-    }
-
-    input.click()
-  }
-
-  const handleNew = () => {
-    if (nodes.length > 0 || edges.length > 0 || regions.length > 0) {
-      if (!confirm('当前文件未保存，确定要新建吗？')) return
-    }
-
-    skipDirtyFlagRef.current = true
-    clearGraph()
-    setNodes([])
-    setEdges([])
-    setRegions([])
-    setInitialInput('')
-    setInitialGenerating(false)
-    setSearchQuery('')
-    setActiveSearchIndex(-1)
-    setDetailPanel(null)
-    setMetaEditor(null)
-    setVersionDialog(null)
-    setShowRegionPanel(false)
-  }
+  const handleRestoreVersion = useCallback(() => {
+    if (!versionDialog) return
+    handleRestoreVersionRaw(versionDialog, selectedVersionIndex, () => setVersionDialog(null))
+  }, [versionDialog, selectedVersionIndex, handleRestoreVersionRaw])
 
   const handleCreateFirstFromText = useCallback(() => {
     const text = initialInput.trim()
@@ -1124,179 +252,6 @@ export function Canvas() {
       setInitialGenerating(false)
     }
   }, [createFirstNode, initialInput, showToast])
-
-  const createNode = useCallback((position: { x: number; y: number }) => {
-    createNodeAtPosition(position, '', true)
-  }, [createNodeAtPosition])
-
-  const handlePaneContextMenu = useCallback((event: any) => {
-    if (canvasMode !== 'learn') return
-    event.preventDefault()
-    const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY })
-    setContextMenu({ x: event.clientX, y: event.clientY, type: 'pane', flowPosition })
-  }, [canvasMode, screenToFlowPosition])
-
-  const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: RFNode) => {
-    if (canvasMode !== 'learn') return
-    event.preventDefault()
-    setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
-      type: 'node',
-      nodeId: node.id,
-      nodeContent: String(node.data.content || '')
-    })
-  }, [canvasMode])
-
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: RFNode) => {
-    if (canvasMode !== 'view') return
-    openNodeDetailById(node.id)
-  }, [canvasMode, openNodeDetailById])
-
-  const triggerNodeEdit = useCallback((nodeId: string) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              isEditing: true
-            }
-          }
-        }
-        return node
-      })
-    )
-  }, [setNodes])
-
-  const openNodeMetaEditor = useCallback((nodeId: string) => {
-    const node = nodes.find((item) => item.id === nodeId)
-    if (!node) return
-    setMetaEditor({
-      nodeId,
-      tagsText: (node.data.tags || []).join(', '),
-      note: node.data.note || ''
-    })
-  }, [nodes])
-
-  const handleSaveNodeMeta = useCallback(() => {
-    if (!metaEditor) return
-    const tags = parseTags(metaEditor.tagsText)
-    const note = metaEditor.note.trim()
-
-    setNodes((nds) => {
-      const now = new Date().toISOString()
-      const nextNodes = nds.map((node) =>
-        node.id === metaEditor.nodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                tags,
-                note,
-                updatedAt: now
-              }
-            }
-          : node
-      )
-      return refreshNodeRuntimeData(nextNodes, getEdges())
-    })
-
-    setMetaEditor(null)
-    showToast('标签和备注已更新', 'success')
-  }, [getEdges, metaEditor, refreshNodeRuntimeData, setNodes, showToast])
-
-  const openVersionDialog = useCallback((nodeId: string) => {
-    const node = nodes.find((item) => item.id === nodeId)
-    if (!node) return
-    const versions = node.data.versions || []
-    setVersionDialog({
-      nodeId,
-      versions,
-      currentContent: node.data.content || ''
-    })
-    setSelectedVersionIndex(Math.max(0, versions.length - 1))
-  }, [nodes])
-
-  const handleRestoreVersion = useCallback(() => {
-    if (!versionDialog) return
-    const targetVersion = versionDialog.versions[selectedVersionIndex]
-    if (!targetVersion) return
-
-    setNodes((nds) => {
-      const now = new Date().toISOString()
-      const nextNodes = nds.map((node) => {
-        if (node.id !== versionDialog.nodeId) return node
-        const currentContent = node.data.content || ''
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            content: targetVersion.content,
-            updatedAt: now,
-            versions: getNextVersions(node.data.versions || [], currentContent)
-          }
-        }
-      })
-      return refreshNodeRuntimeData(nextNodes, getEdges())
-    })
-
-    setVersionDialog(null)
-    showToast('已恢复到历史版本', 'success')
-  }, [getEdges, refreshNodeRuntimeData, selectedVersionIndex, setNodes, showToast, versionDialog])
-
-  const handleExportNode = useCallback((nodeId: string) => {
-    const node = nodes.find((item) => item.id === nodeId)
-    if (!node) {
-      showToast('未找到节点', 'error')
-      return
-    }
-
-    const tags = node.data.tags || []
-    const note = (node.data.note || '').trim()
-    const metadata = [
-      `id: ${node.id}`,
-      `updatedAt: ${node.data.updatedAt || ''}`,
-      `tags: ${tags.join(', ')}`
-    ].join('\n')
-
-    let markdown = `<!--\n${metadata}\n-->\n\n${node.data.content || ''}`
-    if (note) {
-      markdown += `\n\n## 备注\n${note}\n`
-    }
-
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `${node.id}.md`
-    link.click()
-    URL.revokeObjectURL(link.href)
-
-    showToast('节点已导出为 Markdown', 'success')
-  }, [nodes, showToast])
-
-  const matchedPreview = useMemo(() => {
-    const query = searchQuery.trim()
-    if (!query || !activeSearchNodeId) return null
-
-    const node = nodes.find((item) => item.id === activeSearchNodeId)
-    if (!node) return null
-
-    const escaped = escapeRegExp(query)
-    const regex = new RegExp(`(${escaped})`, 'ig')
-    return {
-      nodeId: node.id,
-      highlighted: String(node.data.content || '').replace(regex, '[$1]')
-    }
-  }, [activeSearchNodeId, nodes, searchQuery])
-
-  const selectedDiffLines = useMemo(() => {
-    if (!versionDialog) return []
-    const version = versionDialog.versions[selectedVersionIndex]
-    if (!version) return []
-    return buildDiffLines(version.content, versionDialog.currentContent)
-  }, [selectedVersionIndex, versionDialog])
 
   return (
     <div className="w-screen h-screen flex flex-col bg-background">
@@ -1982,17 +937,5 @@ export function Canvas() {
         </div>
       )}
     </div>
-  )
-}
-
-function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors text-left"
-    >
-      <span className="text-muted-foreground">{icon}</span>
-      {label}
-    </button>
   )
 }

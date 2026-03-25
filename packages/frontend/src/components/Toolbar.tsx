@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useGraphStore } from '../stores/graphStore'
 import { FileText, Save, FolderOpen, FilePlus, Settings, Eye, GraduationCap } from 'lucide-react'
 import { SettingsDialog } from './SettingsDialog'
-
-type CanvasMode = 'learn' | 'view'
+import type { CanvasMode } from '../types/canvas'
 
 interface ToolbarProps {
   onSave: () => void
