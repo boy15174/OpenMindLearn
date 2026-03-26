@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useGraphStore } from '../stores/graphStore'
 import { useToastStore } from '../stores/toastStore'
 import { saveFile, loadFile } from '../services/api'
-import type { Node, SourceReference, Region } from '../types'
+import type { Node, SourceReference, Region, NodeImage } from '../types'
 import type { ExpandMode } from '../stores/settingsStore'
 import type { SourceHighlight } from '../types/canvas'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../types/canvas'
 import { parseNodeDimension, getNodeWidth, getNodeHeight, normalizeNodeForRuntime } from '../utils/nodeDimension'
 import { normalizeRegionsWithNodeFallback } from '../utils/region'
+import { fileToBase64, base64ToBlob } from '../utils/base64'
 
 export interface FileIODeps {
   nodes: any[]
@@ -23,6 +24,7 @@ export interface FileIODeps {
   handleGenerate: (nodeId: string, content: string) => Promise<void>
   handleSaveNodeContent: (nodeId: string, content: string) => void
   handleExpand: (...args: any[]) => Promise<void>
+  handleImagesChange: (nodeId: string, images: NodeImage[]) => void
   resetSearch: () => void
   setDetailPanel: (v: null) => void
   setMetaEditor: (v: null) => void
@@ -30,6 +32,7 @@ export interface FileIODeps {
   setShowRegionPanel: (v: boolean) => void
   setInitialInput: (v: string) => void
   setInitialGenerating: (v: boolean) => void
+  setInitialImages: (v: any[]) => void
 }
 
 export function useCanvasFileIO(deps: FileIODeps) {
@@ -52,20 +55,29 @@ export function useCanvasFileIO(deps: FileIODeps) {
         note: node.data.note || '',
         versions: node.data.versions || [],
         expansionColor: node.data.expansionColor,
-        sourceRef: node.data.sourceRef
+        sourceRef: node.data.sourceRef,
+        images: node.data.images || []
       }))
 
       const result = await saveFile(graphNodes, deps.edges, fileName, deps.regions)
+      if (!result?.data || typeof result.data !== 'string') {
+        throw new Error(result?.error || 'Invalid save response')
+      }
+
+      const blob = base64ToBlob(result.data, 'application/zip')
+      const blobUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.href = `data:application/zip;base64,${result.data}`
+      link.href = blobUrl
       link.download = `${fileName}.oml`
       link.click()
+      URL.revokeObjectURL(blobUrl)
 
       setDirty(false)
       showToast('文件保存成功！', 'success')
     } catch (error) {
       console.error('保存失败:', error)
-      showToast('保存失败，请重试', 'error')
+      const message = error instanceof Error ? error.message : '保存失败，请重试'
+      showToast(`保存失败：${message}`, 'error')
     }
   }, [deps.nodes, deps.edges, deps.regions, fileName, setDirty, showToast])
 
@@ -79,9 +91,11 @@ export function useCanvasFileIO(deps: FileIODeps) {
       if (!file) return
 
       try {
-        const arrayBuffer = await file.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        const base64 = await fileToBase64(file)
         const result = await loadFile(base64)
+        if (!result?.nodes || !Array.isArray(result.nodes)) {
+          throw new Error(result?.error || 'Invalid load response')
+        }
 
         const loadedNodes: Node[] = (result.nodes || []).map((node: Node) => normalizeNodeForRuntime(node))
         const loadedRegions = normalizeRegionsWithNodeFallback(result.regions, loadedNodes)
@@ -110,6 +124,8 @@ export function useCanvasFileIO(deps: FileIODeps) {
             versions: node.versions || [],
             expansionColor: node.expansionColor,
             sourceRef: node.sourceRef,
+            images: node.images || [],
+            onImagesChange: (imgs: NodeImage[]) => deps.handleImagesChange(node.id, imgs),
             onGenerate: (c: string) => deps.handleGenerate(node.id, c),
             onSaveContent: (c: string) => deps.handleSaveNodeContent(node.id, c),
             onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
@@ -139,7 +155,8 @@ export function useCanvasFileIO(deps: FileIODeps) {
         showToast('文件加载成功！', 'success')
       } catch (error) {
         console.error('加载失败:', error)
-        showToast('加载失败，请检查文件格式', 'error')
+        const message = error instanceof Error ? error.message : '加载失败，请检查文件格式'
+        showToast(`加载失败：${message}`, 'error')
       }
     }
 
@@ -158,6 +175,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
     deps.setRegions([])
     deps.setInitialInput('')
     deps.setInitialGenerating(false)
+    deps.setInitialImages([])
     deps.resetSearch()
     deps.setDetailPanel(null)
     deps.setMetaEditor(null)

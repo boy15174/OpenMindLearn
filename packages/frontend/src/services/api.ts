@@ -1,15 +1,27 @@
-import { Node, SourceReference, Region } from '../types'
+import { Node, SourceReference, Region, NodeImage } from '../types'
 import type { ExpandMode, PromptTemplates } from '../stores/settingsStore'
 
 const API_BASE = '/api'
 
-export async function generateNode(prompt: string) {
+async function parseJsonOrThrow(res: Response) {
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data?.error || `HTTP ${res.status}`)
+  }
+  return data
+}
+
+export async function generateNode(prompt: string, images?: NodeImage[]) {
   const res = await fetch(`${API_BASE}/nodes/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
+    body: JSON.stringify({ prompt, images })
   })
-  return res.json()
+  return parseJsonOrThrow(res)
+}
+
+export function stripImagesFromNodes(nodes: Node[]): Node[] {
+  return nodes.map(({ images, ...rest }) => rest) as Node[]
 }
 
 export async function expandNode(
@@ -19,14 +31,15 @@ export async function expandNode(
   selectedNodeIds?: string[],
   sourceRef?: SourceReference,
   expandMode?: ExpandMode,
-  contextMaxDepth?: number
+  contextMaxDepth?: number,
+  images?: NodeImage[]
 ) {
   const res = await fetch(`${API_BASE}/nodes/expand`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth })
+    body: JSON.stringify({ text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth, images })
   })
-  return res.json()
+  return parseJsonOrThrow(res)
 }
 
 export async function saveFile(nodes: Node[], edges: any[], name: string, regions?: Region[]) {
@@ -35,7 +48,7 @@ export async function saveFile(nodes: Node[], edges: any[], name: string, region
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nodes, edges, regions, name })
   })
-  return res.json()
+  return parseJsonOrThrow(res)
 }
 
 export async function loadFile(base64Data: string) {
@@ -44,7 +57,7 @@ export async function loadFile(base64Data: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data: base64Data })
   })
-  return res.json()
+  return parseJsonOrThrow(res)
 }
 
 export async function updateLLMConfig(config: {
@@ -62,5 +75,5 @@ export async function updateLLMConfig(config: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config)
   })
-  return res.json()
+  return parseJsonOrThrow(res)
 }

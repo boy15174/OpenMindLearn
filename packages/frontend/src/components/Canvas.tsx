@@ -8,11 +8,14 @@ import { MenuItem } from './MenuItem'
 import { generateNode } from '../services/api'
 import { useToastStore } from '../stores/toastStore'
 import { useSettingsStore } from '../stores/settingsStore'
-import { Plus, X, Eye, Pencil, RefreshCw, ClipboardPaste, Sparkles, Download, Tags, History, Search, Layers, Trash2 } from 'lucide-react'
+import { Plus, X, Eye, Pencil, RefreshCw, ClipboardPaste, Sparkles, Download, Tags, History, Search, Layers, Trash2, ImagePlus } from 'lucide-react'
 import { cn } from '../utils/cn'
+import { ImageLightbox } from './ImageLightbox'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { CanvasMode, MetaEditorState, VersionDialogState, DetailPanelState } from '../types/canvas'
+import type { NodeImage } from '../types'
+import { readFilesAsNodeImages, readClipboardImages } from '../utils/image'
 import { buildDiffLines } from '../utils/search'
 
 import { useCanvasContextMenu } from '../hooks/useCanvasContextMenu'
@@ -29,6 +32,8 @@ export function Canvas() {
   const [detailFontSize, setDetailFontSize] = useState(15)
   const [initialInput, setInitialInput] = useState('')
   const [initialGenerating, setInitialGenerating] = useState(false)
+  const [initialImages, setInitialImages] = useState<NodeImage[]>([])
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [metaEditor, setMetaEditor] = useState<MetaEditorState | null>(null)
   const [versionDialog, setVersionDialog] = useState<VersionDialogState | null>(null)
   const [selectedVersionIndex, setSelectedVersionIndex] = useState(0)
@@ -62,6 +67,7 @@ export function Canvas() {
     handleSaveNodeContent,
     handleGenerate,
     handleExpand,
+    handleImagesChange,
     createFirstNode,
     createNode,
     triggerNodeEdit,
@@ -125,13 +131,15 @@ export function Canvas() {
     handleGenerate,
     handleSaveNodeContent,
     handleExpand,
+    handleImagesChange,
     resetSearch,
     setDetailPanel,
     setMetaEditor,
     setVersionDialog,
     setShowRegionPanel,
     setInitialInput,
-    setInitialGenerating
+    setInitialGenerating,
+    setInitialImages
   })
 
   // --- Derived computations ---
@@ -178,6 +186,48 @@ export function Canvas() {
       setVersionDialog(null)
     }
   }, [canvasMode, setNodes, setContextMenu, setRegionDrag, setRegionTitleEdit, setShowRegionPanel])
+
+  // --- Global paste: add clipboard images to selected node or initial input area ---
+  useEffect(() => {
+    if (canvasMode !== 'learn') return
+
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      if (!e.clipboardData) return
+      const hasImage = Array.from(e.clipboardData.items).some((item) => item.type.startsWith('image/'))
+      if (!hasImage) return
+
+      // Skip if the event target is an input/textarea (NodeCard handles its own paste)
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+      // Skip if inside a NodeCard (it has its own onPaste handler)
+      if (target.closest('[data-nodeid]') || target.closest('.react-flow__node')) return
+
+      e.preventDefault()
+      readClipboardImages(e.clipboardData.items).then((newImages) => {
+        if (newImages.length === 0) return
+
+        // If no nodes on canvas, add to initial images
+        if (nodes.length === 0) {
+          setInitialImages((prev) => [...prev, ...newImages])
+          showToast(`已粘贴 ${newImages.length} 张图片`, 'success')
+          return
+        }
+
+        // If a node is selected, add images to it
+        const selected = nodes.filter((n) => n.selected)
+        if (selected.length === 1) {
+          handleImagesChange(selected[0].id, [...((selected[0].data?.images as NodeImage[]) || []), ...newImages])
+          showToast(`已粘贴 ${newImages.length} 张图片到选中节点`, 'success')
+          return
+        }
+
+        showToast('请先选中一个节点再粘贴图片', 'error')
+      })
+    }
+
+    document.addEventListener('paste', handleGlobalPaste)
+    return () => document.removeEventListener('paste', handleGlobalPaste)
+  }, [canvasMode, nodes, handleImagesChange, showToast])
 
   // --- Thin handlers ---
   const openNodeDetailById = useCallback((nodeId: string) => {
@@ -230,10 +280,11 @@ export function Canvas() {
   const handleCreateFirstFromText = useCallback(() => {
     const text = initialInput.trim()
     if (!text) return
-    createFirstNode(text, false, text)
+    createFirstNode(text, false, text, initialImages.length > 0 ? initialImages : undefined)
     setInitialInput('')
+    setInitialImages([])
     showToast('首节点已创建', 'success')
-  }, [createFirstNode, initialInput, showToast])
+  }, [createFirstNode, initialInput, initialImages, showToast])
 
   const handleGenerateFirstFromPrompt = useCallback(async () => {
     const prompt = initialInput.trim()
@@ -241,9 +292,11 @@ export function Canvas() {
 
     setInitialGenerating(true)
     try {
-      const result = await generateNode(prompt)
-      createFirstNode(result.content || '', false, prompt)
+      const images = initialImages.length > 0 ? initialImages : undefined
+      const result = await generateNode(prompt, images)
+      createFirstNode(result.content || '', false, prompt, images)
       setInitialInput('')
+      setInitialImages([])
       showToast('首节点生成成功', 'success')
     } catch (error) {
       console.error('首节点生成失败:', error)
@@ -251,7 +304,16 @@ export function Canvas() {
     } finally {
       setInitialGenerating(false)
     }
-  }, [createFirstNode, initialInput, showToast])
+  }, [createFirstNode, initialInput, initialImages, showToast])
+
+  const handleInitialImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    readFilesAsNodeImages(files).then((newImages) => {
+      setInitialImages((prev) => [...prev, ...newImages])
+    })
+    e.target.value = ''
+  }, [])
 
   return (
     <div className="w-screen h-screen flex flex-col bg-background">
@@ -639,7 +701,45 @@ export function Canvas() {
                   className="mt-3 w-full p-3 text-sm rounded border border-border/70 bg-background resize-none outline-none focus:border-primary/50"
                   placeholder="粘贴文本，或输入你希望生成的主题..."
                 />
-                <div className="mt-3 flex items-center justify-end gap-2">
+                {initialImages.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-border/70 bg-muted/25 p-2">
+                    <div className="mb-2 inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
+                      已添加图片 {initialImages.length}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-0.5">
+                      {initialImages.map((img) => (
+                        <div key={img.id} className="relative group/img shrink-0">
+                          <button
+                            type="button"
+                            className="h-20 w-28 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm transition-all hover:border-primary/45 hover:shadow"
+                            onClick={() => setPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
+                            title={img.name || '附件图片'}
+                          >
+                            <img
+                              src={`data:${img.mimeType};base64,${img.base64}`}
+                              alt={img.name || '附件图片'}
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                          <button
+                            onClick={() => setInitialImages((prev) => prev.filter(i => i.id !== img.id))}
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                            title="移除图片"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-3 flex items-center justify-between">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-border hover:bg-accent cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
+                    <ImagePlus className="w-4 h-4" />
+                    添加图片
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={handleInitialImageUpload} />
+                  </label>
+                  <div className="flex items-center gap-2">
                   <button
                     onClick={handleCreateFirstFromText}
                     disabled={!initialInput.trim() || initialGenerating}
@@ -656,6 +756,7 @@ export function Canvas() {
                     <Sparkles className="w-4 h-4" />
                     {initialGenerating ? '生成中...' : 'Prompt 生成'}
                   </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -803,6 +904,40 @@ export function Canvas() {
               >
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailPanel.content}</ReactMarkdown>
               </div>
+              {(() => {
+                const detailNode = nodes.find((n) => n.id === detailPanel.nodeId)
+                const detailImages: NodeImage[] = detailNode?.data?.images || []
+                if (detailImages.length === 0) return null
+                return (
+                  <div className="mt-5 rounded-xl border border-border/70 bg-muted/20 p-3">
+                    <div className="mb-2 inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-1 text-xs text-muted-foreground">
+                      参考图片 {detailImages.length}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                      {detailImages.map((img) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onClick={() => setPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
+                          className="group relative overflow-hidden rounded-lg border border-border/70 bg-background text-left shadow-sm transition-all hover:border-primary/45 hover:shadow"
+                          title={img.name || '附件图片'}
+                        >
+                          <img
+                            src={`data:${img.mimeType};base64,${img.base64}`}
+                            alt={img.name || '附件图片'}
+                            className="h-32 w-full object-cover md:h-36"
+                          />
+                          {(img.name || '').trim() && (
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-2 py-1.5">
+                              <div className="line-clamp-1 text-[11px] text-white/90">{img.name}</div>
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )}
@@ -935,6 +1070,10 @@ export function Canvas() {
             </div>
           </div>
         </div>
+      )}
+
+      {previewImage && (
+        <ImageLightbox src={previewImage} onClose={() => setPreviewImage(null)} />
       )}
     </div>
   )

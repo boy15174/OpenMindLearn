@@ -1,5 +1,7 @@
 export type ExpandMode = 'direct' | 'targeted' | 'custom_context'
 
+import type { NodeImage } from '../types/index.js'
+
 export interface PromptTemplates {
   directExpand: string
   targetedQuestion: string
@@ -220,8 +222,19 @@ function buildContextPrompt(prompt: string, contextXml: string): string {
   })
 }
 
-function buildCompletionBody(prompt: string) {
+function buildCompletionBody(prompt: string, images?: NodeImage[]) {
   const cfg = getResolvedConfig()
+
+  const userContent = images && images.length > 0
+    ? [
+        { type: 'text' as const, text: prompt },
+        ...images.map(img => ({
+          type: 'image_url' as const,
+          image_url: { url: `data:${img.mimeType};base64,${img.base64}` }
+        }))
+      ]
+    : prompt
+
   return {
     url: `${cfg.baseURL}/chat/completions`,
     apiKey: cfg.apiKey,
@@ -234,14 +247,14 @@ function buildCompletionBody(prompt: string) {
           role: 'system',
           content: cfg.systemPrompt
         },
-        { role: 'user', content: prompt }
+        { role: 'user', content: userContent }
       ]
     }
   }
 }
 
-export async function generateContent(prompt: string): Promise<string> {
-  const payload = buildCompletionBody(prompt)
+export async function generateContent(prompt: string, images?: NodeImage[]): Promise<string> {
+  const payload = buildCompletionBody(prompt, images)
 
   const response = await fetch(payload.url, {
     method: 'POST',
@@ -259,10 +272,11 @@ export async function generateContent(prompt: string): Promise<string> {
 
 export async function generateWithContext(
   prompt: string,
-  contextXml: string
+  contextXml: string,
+  images?: NodeImage[]
 ): Promise<string> {
   const fullPrompt = buildContextPrompt(prompt, contextXml)
-  const payload = buildCompletionBody(fullPrompt)
+  const payload = buildCompletionBody(fullPrompt, images)
 
   const response = await fetch(payload.url, {
     method: 'POST',

@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { Builder, Parser } from 'xml2js'
-import { Node, Region, SourceReference } from '../types/index.js'
+import { Node, Region, SourceReference, NodeImage } from '../types/index.js'
 
 interface Edge {
   id: string
@@ -24,6 +24,13 @@ interface NodeDescriptorVersion {
   file: string
 }
 
+interface NodeDescriptorImage {
+  id: string
+  mimeType: string
+  name?: string
+  file: string
+}
+
 interface NodeDescriptor {
   id: string
   contentFile: string
@@ -38,6 +45,7 @@ interface NodeDescriptor {
   versions?: NodeDescriptorVersion[]
   expansionColor?: string
   sourceRef?: SourceReference
+  images?: NodeDescriptorImage[]
 }
 
 const NODE_DEFAULT_WIDTH = 380
@@ -159,6 +167,25 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
 
       nodeFolder.file('current.md', node.content)
 
+      // Save images to nodes/{nodeId}/resources/
+      const imageDescriptors: NodeDescriptorImage[] = []
+      if (node.images && node.images.length > 0) {
+        const nodeResourcesFolder = nodeFolder.folder('resources')
+        if (nodeResourcesFolder) {
+          node.images.forEach((img) => {
+            const extension = img.mimeType.split('/')[1] || 'png'
+            const fileName = `${img.id}.${extension}`
+            nodeResourcesFolder.file(fileName, img.base64, { base64: true })
+            imageDescriptors.push({
+              id: img.id,
+              mimeType: img.mimeType,
+              name: img.name,
+              file: fileName
+            })
+          })
+        }
+      }
+
       const descriptor: NodeDescriptor = {
         id: node.id,
         contentFile: 'current.md',
@@ -181,19 +208,15 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
           file: version.file
         })),
         expansionColor: node.expansionColor,
-        sourceRef: node.sourceRef
+        sourceRef: node.sourceRef,
+        images: imageDescriptors.length > 0 ? imageDescriptors : undefined
       }
 
       nodeFolder.file('node.json', JSON.stringify(descriptor, null, 2))
     })
   }
 
-  // 3. 创建 resources 目录结构
-  zip.folder('resources')
-  zip.folder('resources/images')
-  zip.folder('resources/attachments')
-
-  // 4. 生成 ZIP 并返回 base64
+  // 3. 生成 ZIP 并返回 base64
   const zipBlob = await zip.generateAsync({ type: 'base64' })
   return zipBlob
 }
@@ -272,6 +295,23 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
         ? descriptor.tags.map((tag) => parseString(tag)).filter(Boolean)
         : []
 
+      // Load images from nodes/{nodeId}/resources/
+      const imageMetas = Array.isArray(descriptor.images) ? descriptor.images : []
+      const images: NodeImage[] = (await Promise.all(
+        imageMetas.map(async (imgMeta): Promise<NodeImage | null> => {
+          const imgPath = `nodes/${nodeIdFromPath}/resources/${imgMeta.file}`
+          const imgFile = zip.file(imgPath)
+          if (!imgFile) return null
+          const base64 = await imgFile.async('base64')
+          return {
+            id: imgMeta.id || imgMeta.file,
+            base64,
+            mimeType: imgMeta.mimeType || 'image/png',
+            name: imgMeta.name
+          }
+        })
+      )).filter((img): img is NodeImage => img !== null)
+
       return {
         id: nodeId,
         content,
@@ -289,7 +329,8 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
         note: parseString(descriptor.note),
         versions,
         expansionColor: parseString(descriptor.expansionColor) || undefined,
-        sourceRef: normalizeSourceRef(descriptor.sourceRef)
+        sourceRef: normalizeSourceRef(descriptor.sourceRef),
+        images: images.length > 0 ? images : undefined
       }
     })
   )

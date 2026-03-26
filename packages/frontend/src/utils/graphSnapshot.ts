@@ -28,7 +28,8 @@ export function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
     note: n.data.note || '',
     versions: n.data.versions || [],
     expansionColor: n.data.expansionColor,
-    sourceRef: n.data.sourceRef
+    sourceRef: n.data.sourceRef,
+    images: n.data.images || []
   }))
 }
 

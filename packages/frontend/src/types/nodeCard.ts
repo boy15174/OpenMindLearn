@@ -1,4 +1,4 @@
-import type { Node, SourceReference } from './index'
+import type { Node, SourceReference, NodeImage } from './index'
 import type { SourceHighlight } from './canvas'
 import type { ExpandMode } from '../stores/settingsStore'
 
@@ -24,6 +24,8 @@ export interface NodeCardData {
   allNodes?: Node[]
   expansionColor?: string
   sourceHighlights?: SourceHighlight[]
+  images?: NodeImage[]
+  onImagesChange?: (images: NodeImage[]) => void
 }
 
 export interface NodeCardProps {

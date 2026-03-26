@@ -1,3 +1,10 @@
+export interface NodeImage {
+  id: string
+  base64: string
+  mimeType: string
+  name?: string
+}
+
 export interface SourceReference {
   upstreamFingerprintBase64: string
   rangeStart: number
@@ -36,4 +43,5 @@ export interface Node {
   versions?: NodeVersion[]
   expansionColor?: string
   sourceRef?: SourceReference
+  images?: NodeImage[]
 }

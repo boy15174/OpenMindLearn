@@ -3,9 +3,9 @@ import { useNodesState, useEdgesState, useReactFlow, addEdge } from '@xyflow/rea
 import { useGraphStore } from '../stores/graphStore'
 import { useSettingsStore, type ExpandMode } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
-import { generateNode, expandNode } from '../services/api'
+import { generateNode, expandNode, stripImagesFromNodes } from '../services/api'
 import { getExpansionColor } from '../utils/colors'
-import type { Node, SourceReference, Region, NodeVersion } from '../types'
+import type { Node, SourceReference, Region, NodeVersion, NodeImage } from '../types'
 import type { SourceHighlight, MetaEditorState, VersionDialogState } from '../types/canvas'
 import {
   NODE_DEFAULT_WIDTH, NODE_DEFAULT_HEIGHT,
@@ -90,8 +90,22 @@ export function useCanvasNodes(
     })
   }, [getEdges, refreshNodeRuntimeData, setNodes])
 
+  const handleImagesChange = useCallback((nodeId: string, images: NodeImage[]) => {
+    setNodes((nds) => {
+      const now = new Date().toISOString()
+      const nextNodes = nds.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, images, updatedAt: now } }
+          : node
+      )
+      return refreshNodeRuntimeData(nextNodes, getEdges())
+    })
+  }, [getEdges, refreshNodeRuntimeData, setNodes])
+
   const handleGenerate = useCallback(async (nodeId: string, content: string) => {
-    const result = await generateNode(content)
+    const currentNode = getNodes().find((n) => n.id === nodeId)
+    const images: NodeImage[] = (currentNode?.data?.images as NodeImage[]) || []
+    const result = await generateNode(content, images.length > 0 ? images : undefined)
     setNodes((nds) => {
       const now = new Date().toISOString()
       const nextNodes = nds.map((node) => {
@@ -110,7 +124,7 @@ export function useCanvasNodes(
       })
       return refreshNodeRuntimeData(nextNodes, getEdges())
     })
-  }, [getEdges, refreshNodeRuntimeData, setNodes])
+  }, [getEdges, getNodes, refreshNodeRuntimeData, setNodes])
 
   const handleExpand = useCallback(async (
     text: string,
@@ -127,6 +141,7 @@ export function useCanvasNodes(
     const relationshipId = `${parentId}-${Date.now()}`
     const expansionColor = getExpansionColor(relationshipId)
     const parentNode = currentNodes.find((n) => n.id === parentId)
+    const parentImages: NodeImage[] = (parentNode?.data?.images as NodeImage[]) || []
     const now = new Date().toISOString()
 
     const placeholderNode = {
@@ -155,6 +170,8 @@ export function useCanvasNodes(
         versions: [] as NodeVersion[],
         expansionColor,
         sourceRef,
+        images: [] as NodeImage[],
+        onImagesChange: (imgs: NodeImage[]) => handleImagesChange(newNodeId, imgs),
         onGenerate: (c: string) => handleGenerate(newNodeId, c),
         onSaveContent: (c: string) => handleSaveNodeContent(newNodeId, c),
         onExpand: (nextText: string, selectedIds?: string[], nextSourceRef?: SourceReference, nextExpandMode?: ExpandMode) =>
@@ -183,11 +200,12 @@ export function useCanvasNodes(
       const result = await expandNode(
         text,
         parentId,
-        allNodes,
+        stripImagesFromNodes(allNodes),
         selectedNodeIds,
         sourceRef,
         expandMode,
-        llmSettings.contextMaxDepth
+        llmSettings.contextMaxDepth,
+        parentImages.length > 0 ? parentImages : undefined
       )
       setNodes((nds) => {
         const nowUpdated = new Date().toISOString()
@@ -230,10 +248,10 @@ export function useCanvasNodes(
         return refreshNodeRuntimeData(updatedNodes, edgesWithNewEdge)
       })
     }
-  }, [getNodes, getEdges, handleGenerate, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
+  }, [getNodes, getEdges, handleGenerate, handleImagesChange, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
 
   const createNodeAtPosition = useCallback(
-    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string) => {
+    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[]) => {
     const nodeId = Date.now().toString()
     const currentEdges = getEdges()
     const now = new Date().toISOString()
@@ -258,6 +276,8 @@ export function useCanvasNodes(
         tags: [] as string[],
         note: '',
         versions: [] as NodeVersion[],
+        images: initialImages || [] as NodeImage[],
+        onImagesChange: (imgs: NodeImage[]) => handleImagesChange(nodeId, imgs),
         onGenerate: (c: string) => handleGenerate(nodeId, c),
         onSaveContent: (c: string) => handleSaveNodeContent(nodeId, c),
         onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
@@ -271,16 +291,16 @@ export function useCanvasNodes(
       const nextNodes = [...nds, newNode]
       return refreshNodeRuntimeData(nextNodes, currentEdges)
     })
-  }, [getEdges, handleGenerate, handleExpand, handleSaveNodeContent, refreshNodeRuntimeData, setNodes])
+  }, [getEdges, handleGenerate, handleExpand, handleImagesChange, handleSaveNodeContent, refreshNodeRuntimeData, setNodes])
 
-  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string) => {
+  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[]) => {
     const center = getCanvasCenterFlowPosition()
     const position = calculateInitialNodePosition(
       getNodes().map(toPlacementNode),
       center,
       { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
     )
-    createNodeAtPosition(position, content, isEditing, question)
+    createNodeAtPosition(position, content, isEditing, question, initialImages)
   }, [createNodeAtPosition, getCanvasCenterFlowPosition, getNodes])
 
   const createNode = useCallback((position: { x: number; y: number }) => {
@@ -399,6 +419,7 @@ export function useCanvasNodes(
     handleSaveNodeContent,
     handleGenerate,
     handleExpand,
+    handleImagesChange,
     createNodeAtPosition,
     createFirstNode,
     createNode,

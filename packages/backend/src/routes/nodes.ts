@@ -1,17 +1,17 @@
 import { FastifyInstance } from 'fastify'
 import { buildExpandPrompt, generateContent, generateWithContext, getLLMConfig, setLLMConfig } from '../services/llm.js'
 import { buildContextChain, generateContextXml } from '../services/contextService.js'
-import { Node, SourceReference } from '../types/index.js'
+import { Node, SourceReference, NodeImage } from '../types/index.js'
 
 export async function nodeRoutes(fastify: FastifyInstance) {
   fastify.post('/api/nodes/generate', async (request, reply) => {
-    const { prompt } = request.body as { prompt: string }
-    const content = await generateContent(prompt)
+    const { prompt, images } = request.body as { prompt: string; images?: NodeImage[] }
+    const content = await generateContent(prompt, images)
     return { id: Date.now().toString(), content }
   })
 
   fastify.post('/api/nodes/expand', async (request, reply) => {
-    const { text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth } = request.body as {
+    const { text, parentId, allNodes, selectedNodeIds, sourceRef, expandMode, contextMaxDepth, images } = request.body as {
       text: string
       parentId: string
       allNodes?: Node[]
@@ -19,6 +19,7 @@ export async function nodeRoutes(fastify: FastifyInstance) {
       sourceRef?: SourceReference
       expandMode?: 'direct' | 'targeted' | 'custom_context'
       contextMaxDepth?: number
+      images?: NodeImage[]
     }
 
     let content: string
@@ -46,10 +47,10 @@ export async function nodeRoutes(fastify: FastifyInstance) {
       const contextXml = generateContextXml(contextNodes)
 
       // 使用带上下文的生成
-      content = await generateWithContext(finalPrompt, contextXml)
+      content = await generateWithContext(finalPrompt, contextXml, images)
     } else {
       // 没有上下文，直接生成
-      content = await generateContent(finalPrompt)
+      content = await generateContent(finalPrompt, images)
     }
 
     return {
