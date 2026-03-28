@@ -1,0 +1,28 @@
+appId: com.openmindlearn.app
+productName: OpenMindLearn
+asar: true
+
+directories:
+  output: release
+
+files:
+  - src/**/*
+  - package.json
+
+extraResources:
+  - from: ../frontend/dist
+    to: frontend/dist
+  - from: ../backend/dist
+    to: backend/dist
+  - from: ../backend/package.json
+    to: backend/package.json
+
+mac:
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64

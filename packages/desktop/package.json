@@ -1,0 +1,25 @@
+{
+  "name": "@openmindlearn/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "dev": "cross-env OML_DESKTOP_DEV=1 OML_EXTERNAL_BACKEND=1 electron .",
+    "build": "node -e \"console.log('desktop shell: no standalone build step')\"",
+    "build:mac": "electron-builder --config electron-builder.yml --mac dmg zip --arm64",
+    "clean": "rm -rf release"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.0",
+    "@google/generative-ai": "^0.2.0",
+    "dotenv": "^16.3.0",
+    "fastify": "^4.25.0",
+    "jszip": "^3.10.1",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3"
+  }
+}

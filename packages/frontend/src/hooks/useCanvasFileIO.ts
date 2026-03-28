@@ -13,6 +13,28 @@ import { normalizeRegionsWithNodeFallback } from '../utils/region'
 import { fileToBase64, base64ToBlob } from '../utils/base64'
 import { tFromSettings } from './useI18n'
 
+interface DesktopFileApi {
+  pickOpenOmlPath: () => Promise<string | null>
+  pickSaveOmlPath: (suggestedName: string) => Promise<string | null>
+  readFileBase64: (filePath: string) => Promise<string>
+  writeFileBase64: (filePath: string, base64Data: string) => Promise<boolean>
+}
+
+function getDesktopFileApi() {
+  const api = window.omlDesktop
+  if (!api?.pickOpenOmlPath || !api.pickSaveOmlPath || !api.readFileBase64 || !api.writeFileBase64) {
+    return null
+  }
+  return api as DesktopFileApi
+}
+
+function getFileNameFromPath(filePath: string | null | undefined): string {
+  if (!filePath) return ''
+  const normalized = filePath.replace(/\\/g, '/')
+  const rawName = normalized.split('/').pop() || ''
+  return rawName.replace(/\.oml$/i, '')
+}
+
 export interface FileIODeps {
   nodes: any[]
   edges: any[]
@@ -37,8 +59,77 @@ export interface FileIODeps {
 }
 
 export function useCanvasFileIO(deps: FileIODeps) {
-  const { fileName, setDirty, loadGraph, clearGraph } = useGraphStore()
+  const { fileName, currentFilePath, setCurrentFilePath, setDirty, loadGraph, clearGraph } = useGraphStore()
   const { showToast } = useToastStore()
+
+  const applyLoadedGraph = useCallback(async (base64: string, openedFilePath: string | null) => {
+    const result = await loadFile(base64)
+    if (!result?.nodes || !Array.isArray(result.nodes)) {
+      throw new Error(result?.error || 'Invalid load response')
+    }
+
+    const loadedNodes: Node[] = (result.nodes || []).map((node: Node) => normalizeNodeForRuntime(node))
+    const loadedRegions = normalizeRegionsWithNodeFallback(result.regions, loadedNodes)
+
+    const graphName = typeof result.name === 'string' && result.name.trim()
+      ? result.name.trim()
+      : getFileNameFromPath(openedFilePath) || 'Untitled'
+
+    deps.skipDirtyFlagRef.current = true
+    loadGraph({ nodes: loadedNodes, name: graphName, regions: loadedRegions }, openedFilePath)
+
+    const rfNodes = loadedNodes.map((node) => ({
+      id: node.id,
+      type: 'custom',
+      position: node.position,
+      style: {
+        width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+        height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT)
+      },
+      data: {
+        content: node.content,
+        thinking: node.thinking || '',
+        question: node.question || '',
+        nodeId: node.id,
+        width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
+        height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+        tags: node.tags || [],
+        note: node.note || '',
+        versions: node.versions || [],
+        expansionColor: node.expansionColor,
+        sourceRef: node.sourceRef,
+        images: node.images || [],
+        onImagesChange: (imgs: NodeImage[]) => deps.handleImagesChange(node.id, imgs),
+        onGenerate: (c: string) => deps.handleGenerate(node.id, c),
+        onSaveContent: (c: string) => deps.handleSaveNodeContent(node.id, c),
+        onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
+          deps.handleExpand(text, node.id, selectedIds, sourceRef, expandMode),
+        allNodes: loadedNodes,
+        sourceHighlights: [] as SourceHighlight[]
+      }
+    }))
+
+    const loadedEdges = (result.edges || []).map((edge: any) => {
+      if (edge.style) return edge
+      const childNode = loadedNodes.find((node) => node.id === edge.target)
+      return {
+        ...edge,
+        style: childNode?.expansionColor
+          ? { stroke: childNode.expansionColor, strokeWidth: 2 }
+          : undefined
+      }
+    })
+
+    deps.setNodes(deps.refreshNodeRuntimeData(rfNodes, loadedEdges))
+    deps.setEdges(loadedEdges)
+    deps.setRegions(loadedRegions)
+    deps.resetSearch()
+    deps.setDetailPanel(null)
+    setDirty(false)
+    showToast(tFromSettings('toast.fileLoaded'), 'success')
+  }, [deps, loadGraph, setDirty, showToast])
 
   const handleSave = useCallback(async () => {
     try {
@@ -66,13 +157,27 @@ export function useCanvasFileIO(deps: FileIODeps) {
         throw new Error(result?.error || 'Invalid save response')
       }
 
-      const blob = base64ToBlob(result.data, 'application/zip')
-      const blobUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = `${fileName}.oml`
-      link.click()
-      URL.revokeObjectURL(blobUrl)
+      const desktopFileApi = getDesktopFileApi()
+      if (desktopFileApi) {
+        let targetFilePath = currentFilePath
+        if (!targetFilePath) {
+          targetFilePath = await desktopFileApi.pickSaveOmlPath(`${fileName}.oml`)
+          if (!targetFilePath) {
+            return
+          }
+        }
+
+        await desktopFileApi.writeFileBase64(targetFilePath, result.data)
+        setCurrentFilePath(targetFilePath)
+      } else {
+        const blob = base64ToBlob(result.data, 'application/zip')
+        const blobUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = `${fileName}.oml`
+        link.click()
+        URL.revokeObjectURL(blobUrl)
+      }
 
       setDirty(false)
       showToast(tFromSettings('toast.fileSaved'), 'success')
@@ -81,9 +186,26 @@ export function useCanvasFileIO(deps: FileIODeps) {
       const message = error instanceof Error ? error.message : ''
       showToast(tFromSettings('toast.fileSaveFailed', { message }), 'error')
     }
-  }, [deps.nodes, deps.edges, deps.regions, fileName, setDirty, showToast])
+  }, [deps.nodes, deps.edges, deps.regions, fileName, currentFilePath, setCurrentFilePath, setDirty, showToast])
 
-  const handleLoad = useCallback(() => {
+  const handleLoad = useCallback(async () => {
+    const desktopFileApi = getDesktopFileApi()
+
+    if (desktopFileApi) {
+      try {
+        const filePath = await desktopFileApi.pickOpenOmlPath()
+        if (!filePath) return
+
+        const base64 = await desktopFileApi.readFileBase64(filePath)
+        await applyLoadedGraph(base64, filePath)
+      } catch (error) {
+        console.error('加载失败:', error)
+        const message = error instanceof Error ? error.message : ''
+        showToast(tFromSettings('toast.fileLoadFailed', { message }), 'error')
+      }
+      return
+    }
+
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.oml'
@@ -94,68 +216,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
 
       try {
         const base64 = await fileToBase64(file)
-        const result = await loadFile(base64)
-        if (!result?.nodes || !Array.isArray(result.nodes)) {
-          throw new Error(result?.error || 'Invalid load response')
-        }
-
-        const loadedNodes: Node[] = (result.nodes || []).map((node: Node) => normalizeNodeForRuntime(node))
-        const loadedRegions = normalizeRegionsWithNodeFallback(result.regions, loadedNodes)
-
-        deps.skipDirtyFlagRef.current = true
-        loadGraph({ nodes: loadedNodes, name: result.name, regions: loadedRegions })
-
-        const rfNodes = loadedNodes.map((node) => ({
-          id: node.id,
-          type: 'custom',
-          position: node.position,
-          style: {
-            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
-            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT)
-          },
-          data: {
-            content: node.content,
-            thinking: node.thinking || '',
-            question: node.question || '',
-            nodeId: node.id,
-            width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),
-            height: parseNodeDimension(node.height, NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT),
-            createdAt: node.createdAt,
-            updatedAt: node.updatedAt,
-            tags: node.tags || [],
-            note: node.note || '',
-            versions: node.versions || [],
-            expansionColor: node.expansionColor,
-            sourceRef: node.sourceRef,
-            images: node.images || [],
-            onImagesChange: (imgs: NodeImage[]) => deps.handleImagesChange(node.id, imgs),
-            onGenerate: (c: string) => deps.handleGenerate(node.id, c),
-            onSaveContent: (c: string) => deps.handleSaveNodeContent(node.id, c),
-            onExpand: (text: string, selectedIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) =>
-              deps.handleExpand(text, node.id, selectedIds, sourceRef, expandMode),
-            allNodes: loadedNodes,
-            sourceHighlights: [] as SourceHighlight[]
-          }
-        }))
-
-        const loadedEdges = (result.edges || []).map((edge: any) => {
-          if (edge.style) return edge
-          const childNode = loadedNodes.find((node) => node.id === edge.target)
-          return {
-            ...edge,
-            style: childNode?.expansionColor
-              ? { stroke: childNode.expansionColor, strokeWidth: 2 }
-              : undefined
-          }
-        })
-
-        deps.setNodes(deps.refreshNodeRuntimeData(rfNodes, loadedEdges))
-        deps.setEdges(loadedEdges)
-        deps.setRegions(loadedRegions)
-        deps.resetSearch()
-        deps.setDetailPanel(null)
-        setDirty(false)
-        showToast(tFromSettings('toast.fileLoaded'), 'success')
+        await applyLoadedGraph(base64, null)
       } catch (error) {
         console.error('加载失败:', error)
         const message = error instanceof Error ? error.message : ''
@@ -164,7 +225,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
     }
 
     input.click()
-  }, [deps, loadGraph, setDirty, showToast])
+  }, [applyLoadedGraph, showToast])
 
   const handleNew = useCallback(() => {
     if (deps.nodes.length > 0 || deps.edges.length > 0 || deps.regions.length > 0) {
@@ -173,6 +234,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
 
     deps.skipDirtyFlagRef.current = true
     clearGraph()
+    setCurrentFilePath(null)
     deps.setNodes([])
     deps.setEdges([])
     deps.setRegions([])
@@ -184,7 +246,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
     deps.setMetaEditor(null)
     deps.setVersionDialog(null)
     deps.setShowRegionPanel(false)
-  }, [deps, clearGraph])
+  }, [deps, clearGraph, setCurrentFilePath])
 
   return {
     handleSave,

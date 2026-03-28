@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel -r dev",
+    "dev:desktop": "pnpm --parallel --filter @openmindlearn/backend --filter @openmindlearn/frontend --filter @openmindlearn/desktop dev",
     "build": "pnpm -r build",
+    "build:desktop": "pnpm build && pnpm -C packages/desktop build:mac",
     "clean": "pnpm -r clean"
   },
   "devDependencies": {

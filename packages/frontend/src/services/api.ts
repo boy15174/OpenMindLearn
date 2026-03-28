@@ -1,7 +1,7 @@
 import { Node, SourceReference, Region, NodeImage } from '../types'
 import type { ApiStyle, ExpandMode, PromptTemplates } from '../stores/settingsStore'
 
-const API_BASE = '/api'
+const API_BASE = window.omlDesktop?.apiBase || '/api'
 
 async function parseJsonOrThrow(res: Response) {
   const data = await res.json()
