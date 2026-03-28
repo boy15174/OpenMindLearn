@@ -35,16 +35,30 @@ export function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
 }
 
 export function buildSourceHighlightMap(nodes: Node[]): Map<string, SourceHighlight[]> {
-  const map = new Map<string, SourceHighlight[]>()
+  const map = new Map<string, Map<string, SourceHighlight>>()
   nodes.forEach((node) => {
     const parentId = node.parentIds[0]
     if (!parentId || !node.sourceRef) return
-    const current = map.get(parentId) || []
-    current.push({
+    const current = map.get(parentId) || new Map<string, SourceHighlight>()
+    const key = `${node.sourceRef.upstreamFingerprintBase64}:${node.sourceRef.rangeStart}:${node.sourceRef.rangeEnd}`
+    const existing = current.get(key)
+    if (existing) {
+      const nextTargets = new Set([...(existing.targetNodeIds || []), node.id])
+      existing.targetNodeIds = Array.from(nextTargets)
+      return
+    }
+
+    current.set(key, {
       ...node.sourceRef,
-      color: node.expansionColor || '#3b82f6'
+      color: node.expansionColor || '#3b82f6',
+      targetNodeIds: [node.id]
     })
     map.set(parentId, current)
   })
-  return map
+
+  const result = new Map<string, SourceHighlight[]>()
+  map.forEach((group, parentId) => {
+    result.set(parentId, Array.from(group.values()))
+  })
+  return result
 }

@@ -19,12 +19,14 @@ export interface NodeCardData {
   note?: string
   searchMatched?: boolean
   searchActive?: boolean
+  sourceLinkedActive?: boolean
   onGenerate: (content: string) => void
   onSaveContent: (content: string) => void
   onExpand: (text: string, selectedNodeIds?: string[], sourceRef?: SourceReference, expandMode?: ExpandMode) => void
   allNodes?: Node[]
   expansionColor?: string
   sourceHighlights?: SourceHighlight[]
+  onSourceHighlightClick?: (targetNodeIds: string[], sourceNodeId: string) => void
   images?: NodeImage[]
   onImagesChange?: (images: NodeImage[]) => void
 }

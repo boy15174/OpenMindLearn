@@ -72,6 +72,10 @@ export function applySourceHighlightByRanges(container: HTMLElement, highlights:
       mark.style.color = 'inherit'
       mark.style.padding = '0 1px'
       mark.style.borderRadius = '2px'
+      if (highlight.targetNodeIds && highlight.targetNodeIds.length > 0) {
+        mark.dataset.targetNodeIds = highlight.targetNodeIds.join(',')
+        mark.style.cursor = 'pointer'
+      }
       mark.textContent = originalText.slice(localStart, localEnd)
       fragment.appendChild(mark)
       cursor = Math.max(cursor, localEnd)

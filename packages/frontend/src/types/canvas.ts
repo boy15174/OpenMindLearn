@@ -17,6 +17,7 @@ export type CanvasMode = 'learn' | 'view'
 
 export interface SourceHighlight extends SourceReference {
   color: string
+  targetNodeIds?: string[]
 }
 
 export interface SearchResult {

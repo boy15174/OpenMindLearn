@@ -17,6 +17,7 @@ interface GraphData {
   edges: Edge[]
   regions?: Region[]
   name: string
+  formatVersion?: string
 }
 
 interface NodeDescriptorVersion {
@@ -53,6 +54,9 @@ const NODE_DEFAULT_WIDTH = 380
 const NODE_DEFAULT_HEIGHT = 300
 const NODE_MIN_WIDTH = 280
 const NODE_MIN_HEIGHT = 200
+const OML_FORMAT_VERSION = '2.0'
+const OML_PARSE_PROFILE = 'nodes-directory-v2'
+const SUPPORTED_OML_MAJOR_VERSION = 2
 
 function parseString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -108,6 +112,19 @@ function normalizeSourceRef(value: unknown): SourceReference | undefined {
 function parseNodeSize(value: unknown, fallback: number, minimum: number): number {
   const parsed = parseNumber(value, fallback)
   return Math.max(minimum, parsed)
+}
+
+function parseMajorVersion(formatVersion: string): number {
+  const [majorRaw] = formatVersion.split('.')
+  const major = Number(majorRaw)
+  return Number.isFinite(major) ? major : 1
+}
+
+function assertSupportedFormatVersion(formatVersion: string) {
+  const major = parseMajorVersion(formatVersion)
+  if (major > SUPPORTED_OML_MAJOR_VERSION) {
+    throw new Error(`Unsupported .oml format version: ${formatVersion}`)
+  }
 }
 
 function buildEdgesFromNodeParents(nodes: Node[]): Edge[] {
@@ -241,6 +258,7 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
   }
   const xmlContent = await structureFile.async('string')
   const structure = await parseStructureXml(xmlContent)
+  assertSupportedFormatVersion(structure.formatVersion)
 
   // 3. 读取节点目录（每个节点自闭环）
   const descriptorPaths = listNodeDescriptorPaths(zip)
@@ -358,7 +376,8 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
     nodes,
     edges,
     regions: structure.regions || [],
-    name: structure.name || 'Untitled'
+    name: structure.name || 'Untitled',
+    formatVersion: structure.formatVersion
   }
 }
 
@@ -374,7 +393,9 @@ function generateStructureXml(graphData: GraphData): string {
     graph: {
       metadata: {
         name: graphData.name,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        formatVersion: OML_FORMAT_VERSION,
+        formatProfile: OML_PARSE_PROFILE
       },
       regions: graphData.regions && graphData.regions.length > 0 ? {
         region: graphData.regions.map((region) => ({
@@ -417,6 +438,7 @@ async function parseStructureXml(xmlContent: string): Promise<{
   name: string
   regions: Region[]
   edges: Edge[]
+  formatVersion: string
 }> {
   const parser = new Parser()
   const result = await parser.parseStringPromise(xmlContent)
@@ -437,6 +459,7 @@ async function parseStructureXml(xmlContent: string): Promise<{
 
   return {
     name: graph.metadata?.[0]?.name?.[0] || 'Untitled',
+    formatVersion: parseString(graph.metadata?.[0]?.formatVersion?.[0], '1.0'),
     regions: regionsRaw.map((region: any) => ({
       id: parseString(region.$?.id, `region-${Date.now()}`),
       name: parseString(region.name?.[0], '未命名区域'),

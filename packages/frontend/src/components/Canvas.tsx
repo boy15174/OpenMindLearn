@@ -30,7 +30,10 @@ const nodeTypes = { custom: NodeCard }
 export function Canvas() {
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('learn')
   const [detailPanel, setDetailPanel] = useState<DetailPanelState | null>(null)
+  const [detailPanelWidth, setDetailPanelWidth] = useState(520)
   const [detailFontSize, setDetailFontSize] = useState(15)
+  const [sourceLinkedSourceNodeId, setSourceLinkedSourceNodeId] = useState<string | null>(null)
+  const [sourceLinkedNodeIds, setSourceLinkedNodeIds] = useState<string[]>([])
   const [initialInput, setInitialInput] = useState('')
   const [initialGenerating, setInitialGenerating] = useState(false)
   const [initialImages, setInitialImages] = useState<NodeImage[]>([])
@@ -40,10 +43,18 @@ export function Canvas() {
   const [selectedVersionIndex, setSelectedVersionIndex] = useState(0)
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const canvasRef = useRef<HTMLDivElement>(null)
+  const detailResizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const sourceLinkClearTimerRef = useRef<number | null>(null)
 
   const theme = useSettingsStore((state) => state.uiSettings.theme)
   const { showToast } = useToastStore()
   const { t } = useI18n()
+
+  const clampDetailPanelWidth = useCallback((nextWidth: number) => {
+    if (typeof window === 'undefined') return Math.max(360, nextWidth)
+    const max = Math.max(420, Math.floor(window.innerWidth * 0.7))
+    return Math.min(max, Math.max(360, nextWidth))
+  }, [])
 
   // --- Hook 4: Nodes (must come before regions since regions needs nodes) ---
   // We pass a placeholder regions initially; the dirty-flag effect inside
@@ -146,16 +157,49 @@ export function Canvas() {
 
   // --- Derived computations ---
   const renderedNodes = useMemo(() => {
+    const sourceLinkedSet = new Set(sourceLinkedNodeIds)
     return nodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
         mode: canvasMode,
         searchMatched: highlightedNodeSet.has(node.id),
-        searchActive: activeSearchNodeId === node.id
+        searchActive: activeSearchNodeId === node.id,
+        sourceLinkedActive: sourceLinkedSet.has(node.id),
+        onSourceHighlightClick: (targetNodeIds: string[], sourceNodeId: string) => {
+          const uniqueIds = Array.from(new Set(targetNodeIds)).filter(Boolean)
+          setSourceLinkedNodeIds(uniqueIds)
+          setSourceLinkedSourceNodeId(sourceNodeId)
+          if (sourceLinkClearTimerRef.current) {
+            window.clearTimeout(sourceLinkClearTimerRef.current)
+          }
+          sourceLinkClearTimerRef.current = window.setTimeout(() => {
+            setSourceLinkedSourceNodeId(null)
+            setSourceLinkedNodeIds([])
+            sourceLinkClearTimerRef.current = null
+          }, 5000)
+        }
       }
     }))
-  }, [nodes, highlightedNodeSet, activeSearchNodeId, canvasMode])
+  }, [nodes, highlightedNodeSet, activeSearchNodeId, canvasMode, sourceLinkedNodeIds])
+
+  const renderedEdges = useMemo(() => {
+    if (!sourceLinkedSourceNodeId || sourceLinkedNodeIds.length === 0) return edges
+    const targetSet = new Set(sourceLinkedNodeIds)
+    return edges.map((edge) => {
+      const isLinked = edge.source === sourceLinkedSourceNodeId && targetSet.has(edge.target)
+      if (!isLinked) return edge
+      return {
+        ...edge,
+        animated: true,
+        style: {
+          ...edge.style,
+          stroke: '#0ea5e9',
+          strokeWidth: Math.max(3.5, Number(edge.style?.strokeWidth || 0) + 1.5)
+        }
+      }
+    })
+  }, [edges, sourceLinkedNodeIds, sourceLinkedSourceNodeId])
 
   const selectedDiffLines = useMemo(() => {
     if (!versionDialog) return []
@@ -186,8 +230,51 @@ export function Canvas() {
       setShowRegionPanel(false)
       setMetaEditor(null)
       setVersionDialog(null)
+      setSourceLinkedSourceNodeId(null)
+      setSourceLinkedNodeIds([])
     }
   }, [canvasMode, setNodes, setContextMenu, setRegionDrag, setRegionTitleEdit, setShowRegionPanel])
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const resizeState = detailResizeRef.current
+      if (!resizeState) return
+      const deltaX = event.clientX - resizeState.startX
+      setDetailPanelWidth(clampDetailPanelWidth(resizeState.startWidth - deltaX))
+    }
+
+    const handleMouseUp = () => {
+      if (!detailResizeRef.current) return
+      detailResizeRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [clampDetailPanelWidth])
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setDetailPanelWidth((width) => clampDetailPanelWidth(width))
+    }
+    window.addEventListener('resize', handleWindowResize)
+    return () => window.removeEventListener('resize', handleWindowResize)
+  }, [clampDetailPanelWidth])
+
+  useEffect(() => {
+    return () => {
+      if (sourceLinkClearTimerRef.current) {
+        window.clearTimeout(sourceLinkClearTimerRef.current)
+      }
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [])
 
   // --- Global paste: add clipboard images to selected node or initial input area ---
   useEffect(() => {
@@ -333,7 +420,7 @@ export function Canvas() {
           <div className="absolute inset-0 z-20">
             <ReactFlow
               nodes={renderedNodes}
-              edges={edges}
+              edges={renderedEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               nodeTypes={nodeTypes}
@@ -850,7 +937,20 @@ export function Canvas() {
         </div>
 
         {detailPanel && (
-          <div className="w-[33%] min-h-0 bg-background border-l border-border flex flex-col shadow-lg">
+          <div
+            className="relative min-h-0 bg-background border-l border-border flex flex-col shadow-lg shrink-0"
+            style={{ width: `${detailPanelWidth}px` }}
+          >
+            <div
+              className="absolute left-0 top-0 h-full w-2 -translate-x-1/2 cursor-col-resize z-50"
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                detailResizeRef.current = { startX: event.clientX, startWidth: detailPanelWidth }
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
             <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-foreground">{t('canvas.detail.title')}</div>

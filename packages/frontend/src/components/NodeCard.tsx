@@ -93,7 +93,27 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
     if (validHighlights.length > 0) {
       applySourceHighlightByRanges(container, validHighlights)
     }
-  }, [content, isEditing, data.sourceHighlights])
+
+    const handleHighlightClick = (event: MouseEvent) => {
+      if (!data.onSourceHighlightClick) return
+      const target = event.target as HTMLElement | null
+      const mark = target?.closest('mark[data-source-highlight="true"]') as HTMLElement | null
+      if (!mark) return
+
+      const targetNodeIds = (mark.dataset.targetNodeIds || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+      if (targetNodeIds.length === 0) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      data.onSourceHighlightClick(targetNodeIds, data.nodeId)
+    }
+
+    container.addEventListener('click', handleHighlightClick)
+    return () => container.removeEventListener('click', handleHighlightClick)
+  }, [content, isEditing, data.sourceHighlights, data.onSourceHighlightClick])
 
   const handleGenerate = async () => {
     if (!content.trim()) return
@@ -118,6 +138,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
         'w-full h-full min-h-0 relative group flex flex-col',
         data.searchMatched && 'ring-2 ring-amber-400/80 shadow-md',
         data.searchActive && 'ring-2 ring-amber-500 shadow-lg',
+        data.sourceLinkedActive && 'ring-2 ring-sky-500/80 shadow-lg',
         isEditing && 'ring-1 ring-primary/40 shadow-md'
       )}
       style={{
