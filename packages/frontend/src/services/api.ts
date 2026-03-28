@@ -1,5 +1,5 @@
 import { Node, SourceReference, Region, NodeImage } from '../types'
-import type { ExpandMode, PromptTemplates } from '../stores/settingsStore'
+import type { ApiStyle, ExpandMode, PromptTemplates } from '../stores/settingsStore'
 
 const API_BASE = '/api'
 
@@ -64,6 +64,8 @@ export async function updateLLMConfig(config: {
   apiKey: string
   baseURL: string
   model: string
+  apiStyle: ApiStyle
+  answerAnchorKeywords: string[]
   temperature: number
   maxTokens: number
   contextMaxDepth: number

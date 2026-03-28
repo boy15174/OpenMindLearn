@@ -17,6 +17,7 @@ export function buildNodeSnapshots(rfNodes: any[], rfEdges: any[]): Node[] {
   return rfNodes.map((n) => ({
     id: n.id,
     content: n.data.content || '',
+    thinking: n.data.thinking || '',
     question: n.data.question || '',
     position: n.position,
     width: getNodeWidth(n),

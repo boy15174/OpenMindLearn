@@ -171,6 +171,22 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
           />
         ) : (
           <div className="space-y-1 flex-1 min-h-0 flex flex-col">
+            {(data.thinking || '').trim() && (
+              <details
+                className="text-[10px] rounded border border-border/60 bg-muted/35 p-1.5 shrink-0 nowheel nodrag"
+                onWheelCapture={(event) => event.stopPropagation()}
+              >
+                <summary className="cursor-pointer select-none text-[10px] text-muted-foreground">思考过程（可展开）</summary>
+                <div
+                  className="mt-1 max-h-36 overflow-y-auto nowheel nodrag text-muted-foreground"
+                  onWheelCapture={(event) => event.stopPropagation()}
+                >
+                  <div className="prose prose-xs dark:prose-invert max-w-none leading-relaxed prose-p:text-[10px] prose-li:text-[10px] prose-p:text-muted-foreground prose-li:text-muted-foreground prose-strong:text-foreground/80 prose-headings:text-[11px] prose-headings:text-foreground/80 prose-code:text-[10px] prose-pre:text-[10px]">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.thinking || ''}</ReactMarkdown>
+                  </div>
+                </div>
+              </details>
+            )}
             <div
               ref={selection.contentRef}
               onMouseUp={() => selection.handleTextSelection(isReadOnly, isEditing)}

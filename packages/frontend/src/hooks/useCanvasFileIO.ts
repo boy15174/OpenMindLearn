@@ -44,6 +44,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
       const graphNodes: Node[] = deps.nodes.map((node) => ({
         id: node.id,
         content: node.data.content || '',
+        thinking: node.data.thinking || '',
         question: node.data.question || '',
         position: node.position,
         width: getNodeWidth(node),
@@ -113,6 +114,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
           },
           data: {
             content: node.content,
+            thinking: node.thinking || '',
             question: node.question || '',
             nodeId: node.id,
             width: parseNodeDimension(node.width, NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH),

@@ -116,6 +116,7 @@ export function useCanvasNodes(
           data: {
             ...node.data,
             content: result.content,
+            thinking: result.thinking || '',
             isEditing: false,
             updatedAt: now,
             versions: getNextVersions(node.data.versions || [], previousContent)
@@ -158,6 +159,7 @@ export function useCanvasNodes(
       },
       data: {
         content: '生成中...',
+        thinking: '',
         question: text,
         nodeId: newNodeId,
         width: NODE_DEFAULT_WIDTH,
@@ -216,6 +218,7 @@ export function useCanvasNodes(
                 data: {
                   ...node.data,
                   content: result.content,
+                  thinking: result.thinking || '',
                   question: text,
                   updatedAt: nowUpdated,
                   isGenerating: false,
@@ -237,6 +240,7 @@ export function useCanvasNodes(
                 data: {
                   ...node.data,
                   content: '生成失败，请重试',
+                  thinking: '',
                   question: text,
                   updatedAt: nowUpdated,
                   isGenerating: false,
@@ -251,7 +255,7 @@ export function useCanvasNodes(
   }, [getNodes, getEdges, handleGenerate, handleImagesChange, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
 
   const createNodeAtPosition = useCallback(
-    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[]) => {
+    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[], initialThinking?: string) => {
     const nodeId = Date.now().toString()
     const currentEdges = getEdges()
     const now = new Date().toISOString()
@@ -266,6 +270,7 @@ export function useCanvasNodes(
       },
       data: {
         content,
+        thinking: initialThinking || '',
         question: question || '',
         isEditing,
         nodeId,
@@ -293,14 +298,14 @@ export function useCanvasNodes(
     })
   }, [getEdges, handleGenerate, handleExpand, handleImagesChange, handleSaveNodeContent, refreshNodeRuntimeData, setNodes])
 
-  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[]) => {
+  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[], initialThinking?: string) => {
     const center = getCanvasCenterFlowPosition()
     const position = calculateInitialNodePosition(
       getNodes().map(toPlacementNode),
       center,
       { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
     )
-    createNodeAtPosition(position, content, isEditing, question, initialImages)
+    createNodeAtPosition(position, content, isEditing, question, initialImages, initialThinking)
   }, [createNodeAtPosition, getCanvasCenterFlowPosition, getNodes])
 
   const createNode = useCallback((position: { x: number; y: number }) => {
@@ -385,6 +390,7 @@ export function useCanvasNodes(
 
     const tags = node.data.tags || []
     const note = (node.data.note || '').trim()
+    const thinking = (node.data.thinking || '').trim()
     const metadata = [
       `id: ${node.id}`,
       `updatedAt: ${node.data.updatedAt || ''}`,
@@ -392,6 +398,9 @@ export function useCanvasNodes(
     ].join('\n')
 
     let markdown = `<!--\n${metadata}\n-->\n\n${node.data.content || ''}`
+    if (thinking) {
+      markdown += `\n\n## 思考过程（Think）\n${thinking}\n`
+    }
     if (note) {
       markdown += `\n\n## 备注\n${note}\n`
     }

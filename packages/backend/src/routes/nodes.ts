@@ -1,13 +1,13 @@
 import { FastifyInstance } from 'fastify'
-import { buildExpandPrompt, generateContent, generateWithContext, getLLMConfig, setLLMConfig } from '../services/llm.js'
+import { buildExpandPrompt, generateContent, generateWithContext, getLLMConfig, setLLMConfig, type ApiStyle } from '../services/llm.js'
 import { buildContextChain, generateContextXml } from '../services/contextService.js'
 import { Node, SourceReference, NodeImage } from '../types/index.js'
 
 export async function nodeRoutes(fastify: FastifyInstance) {
   fastify.post('/api/nodes/generate', async (request, reply) => {
     const { prompt, images } = request.body as { prompt: string; images?: NodeImage[] }
-    const content = await generateContent(prompt, images)
-    return { id: Date.now().toString(), content }
+    const result = await generateContent(prompt, images)
+    return { id: Date.now().toString(), content: result.content, thinking: result.thinking }
   })
 
   fastify.post('/api/nodes/expand', async (request, reply) => {
@@ -22,7 +22,7 @@ export async function nodeRoutes(fastify: FastifyInstance) {
       images?: NodeImage[]
     }
 
-    let content: string
+    let result: { content: string; thinking?: string }
     const resolvedDepth = Math.max(1, Math.min(50, Number.isFinite(contextMaxDepth)
       ? Number(contextMaxDepth)
       : getLLMConfig().contextMaxDepth))
@@ -47,15 +47,16 @@ export async function nodeRoutes(fastify: FastifyInstance) {
       const contextXml = generateContextXml(contextNodes)
 
       // 使用带上下文的生成
-      content = await generateWithContext(finalPrompt, contextXml, images)
+      result = await generateWithContext(finalPrompt, contextXml, images)
     } else {
       // 没有上下文，直接生成
-      content = await generateContent(finalPrompt, images)
+      result = await generateContent(finalPrompt, images)
     }
 
     return {
       id: Date.now().toString(),
-      content,
+      content: result.content,
+      thinking: result.thinking,
       question: text,
       parentId,
       sourceRef
@@ -63,10 +64,12 @@ export async function nodeRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/api/config/llm', async (request, reply) => {
-    const { apiKey, baseURL, model, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates } = request.body as {
+    const { apiKey, baseURL, model, apiStyle, answerAnchorKeywords, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates } = request.body as {
       apiKey: string
       baseURL: string
       model: string
+      apiStyle?: ApiStyle
+      answerAnchorKeywords?: string[]
       temperature?: number
       maxTokens?: number
       contextMaxDepth?: number
@@ -78,7 +81,7 @@ export async function nodeRoutes(fastify: FastifyInstance) {
         contextEnvelope?: string
       }
     }
-    setLLMConfig({ apiKey, baseURL, model, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates })
+    setLLMConfig({ apiKey, baseURL, model, apiStyle, answerAnchorKeywords, temperature, maxTokens, contextMaxDepth, systemPrompt, promptTemplates })
     return { success: true }
   })
 }

@@ -34,6 +34,7 @@ interface NodeDescriptorImage {
 interface NodeDescriptor {
   id: string
   contentFile: string
+  thinkingFile?: string
   question?: string
   position: { x: number; y: number }
   size?: { width: number; height: number }
@@ -166,6 +167,10 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
       }
 
       nodeFolder.file('current.md', node.content)
+      const thinking = parseString(node.thinking).trim()
+      if (thinking) {
+        nodeFolder.file('thinking.md', thinking)
+      }
 
       // Save images to nodes/{nodeId}/resources/
       const imageDescriptors: NodeDescriptorImage[] = []
@@ -189,6 +194,7 @@ export async function saveOmlFile(graphData: GraphData): Promise<string> {
       const descriptor: NodeDescriptor = {
         id: node.id,
         contentFile: 'current.md',
+        thinkingFile: thinking ? 'thinking.md' : undefined,
         question: node.question || '',
         position: {
           x: node.position?.x ?? 0,
@@ -265,6 +271,14 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
         `nodes/${nodeIdFromPath}/${contentFile}`,
         `Node current file not found: nodes/${nodeIdFromPath}/${contentFile}`
       )
+      const thinkingFile = parseString(descriptor.thinkingFile)
+      const thinking = thinkingFile
+        ? await readRequiredFile(
+            zip,
+            `nodes/${nodeIdFromPath}/${thinkingFile}`,
+            `Node thinking file not found: nodes/${nodeIdFromPath}/${thinkingFile}`
+          )
+        : ''
 
       const versionMetas = Array.isArray(descriptor.versions) ? descriptor.versions : []
       const versions = await Promise.all(
@@ -315,6 +329,7 @@ export async function loadOmlFile(base64Data: string): Promise<GraphData> {
       return {
         id: nodeId,
         content,
+        thinking: thinking || undefined,
         question: parseString(descriptor.question),
         position: {
           x: parseNumber((rawPosition as any).x, 0),

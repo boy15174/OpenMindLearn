@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_PROMPT_TEMPLATES, type ThemeMode, useSettingsStore } from '../stores/settingsStore'
+import {
+  DEFAULT_ANSWER_ANCHOR_KEYWORDS,
+  DEFAULT_PROMPT_TEMPLATES,
+  type ApiStyle,
+  type ThemeMode,
+  useSettingsStore
+} from '../stores/settingsStore'
 import { updateLLMConfig } from '../services/api'
 import { useToastStore } from '../stores/toastStore'
 import { Moon, Sun, X } from 'lucide-react'
@@ -16,9 +22,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [apiKey, setApiKey] = useState(llmSettings.apiKey)
   const [baseURL, setBaseURL] = useState(llmSettings.baseURL)
   const [model, setModel] = useState(llmSettings.model)
+  const [apiStyle, setApiStyle] = useState<ApiStyle>(llmSettings.apiStyle)
   const [temperature, setTemperature] = useState(String(llmSettings.temperature))
   const [maxTokens, setMaxTokens] = useState(String(llmSettings.maxTokens))
   const [contextMaxDepth, setContextMaxDepth] = useState(String(llmSettings.contextMaxDepth))
+  const [answerAnchorKeywordsText, setAnswerAnchorKeywordsText] = useState(llmSettings.answerAnchorKeywords.join('\n'))
   const [systemPrompt, setSystemPrompt] = useState(llmSettings.systemPrompt)
   const [directExpandPrompt, setDirectExpandPrompt] = useState(llmSettings.promptTemplates.directExpand)
   const [targetedPrompt, setTargetedPrompt] = useState(llmSettings.promptTemplates.targetedQuestion)
@@ -32,9 +40,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setApiKey(llmSettings.apiKey)
     setBaseURL(llmSettings.baseURL)
     setModel(llmSettings.model)
+    setApiStyle(llmSettings.apiStyle)
     setTemperature(String(llmSettings.temperature))
     setMaxTokens(String(llmSettings.maxTokens))
     setContextMaxDepth(String(llmSettings.contextMaxDepth))
+    setAnswerAnchorKeywordsText(llmSettings.answerAnchorKeywords.join('\n'))
     setSystemPrompt(llmSettings.systemPrompt)
     setDirectExpandPrompt(llmSettings.promptTemplates.directExpand)
     setTargetedPrompt(llmSettings.promptTemplates.targetedQuestion)
@@ -62,6 +72,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const nextTemperature = parseNumber(temperature, llmSettings.temperature, 0, 2)
     const nextMaxTokens = parseNumber(maxTokens, llmSettings.maxTokens, 1, 32000, true)
     const nextContextMaxDepth = parseNumber(contextMaxDepth, llmSettings.contextMaxDepth, 1, 50, true)
+    const nextAnswerAnchorKeywords = answerAnchorKeywordsText
+      .split(/[\r\n,，]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const resolvedAnswerAnchorKeywords = nextAnswerAnchorKeywords.length > 0
+      ? Array.from(new Set(nextAnswerAnchorKeywords))
+      : DEFAULT_ANSWER_ANCHOR_KEYWORDS
     const nextSystemPrompt = systemPrompt.trim() || llmSettings.systemPrompt
 
     const nextPromptTemplates = {
@@ -75,6 +92,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       apiKey,
       baseURL,
       model,
+      apiStyle,
+      answerAnchorKeywords: resolvedAnswerAnchorKeywords,
       temperature: nextTemperature,
       maxTokens: nextMaxTokens,
       contextMaxDepth: nextContextMaxDepth,
@@ -88,6 +107,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         apiKey,
         baseURL,
         model,
+        apiStyle,
+        answerAnchorKeywords: resolvedAnswerAnchorKeywords,
         temperature: nextTemperature,
         maxTokens: nextMaxTokens,
         contextMaxDepth: nextContextMaxDepth,
@@ -175,6 +196,21 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     placeholder="Gemini-3.1-Pro"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">API 风格</label>
+                  <select
+                    value={apiStyle}
+                    onChange={(e) => setApiStyle(e.target.value as ApiStyle)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="openai_chat">OpenAI Chat Completions（推荐）</option>
+                    <option value="google_gemini">Google Gemini（实验）</option>
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    当前 ModelGate 文档显示 Google 风格仍在逐步支持，若返回 405/4xx，请切回 OpenAI 风格。
+                  </p>
+                </div>
               </div>
 
               <div className="rounded border border-border p-3 space-y-3">
@@ -228,6 +264,19 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 <p className="text-xs text-muted-foreground">
                   用于自动回溯父节点链的最大层级，属于 OpenMindLearn 的上下文策略，不是 LLM 原生调用参数。
                 </p>
+                <div className="pt-1">
+                  <label className="block text-sm font-medium mb-1">正文锚点关键词（每行一个）</label>
+                  <textarea
+                    value={answerAnchorKeywordsText}
+                    onChange={(e) => setAnswerAnchorKeywordsText(e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y font-mono text-xs"
+                    placeholder="结论"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    只要某一行包含关键词，就视为正文起点（不要求关键词在行首）。例如：包含“结论”的行。
+                  </p>
+                </div>
               </div>
 
               <div className="rounded border border-border p-3 space-y-3">

@@ -11,6 +11,7 @@ export interface SelectionMenuState {
 
 export interface NodeCardData {
   content: string
+  thinking?: string
   isEditing?: boolean
   mode?: 'learn' | 'view'
   nodeId: string

@@ -236,6 +236,7 @@ export function Canvas() {
     setDetailPanel({
       nodeId,
       content: String(node.data.content || ''),
+      thinking: String(node.data.thinking || ''),
       question: String(node.data.question || '')
     })
   }, [nodes])
@@ -294,7 +295,7 @@ export function Canvas() {
     try {
       const images = initialImages.length > 0 ? initialImages : undefined
       const result = await generateNode(prompt, images)
-      createFirstNode(result.content || '', false, prompt, images)
+      createFirstNode(result.content || '', false, prompt, images, result.thinking || '')
       setInitialInput('')
       setInitialImages([])
       showToast('首节点生成成功', 'success')
@@ -894,6 +895,22 @@ export function Canvas() {
                   <div className="text-xs text-muted-foreground mb-1">问题</div>
                   <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detailPanel.question}</div>
                 </div>
+              )}
+              {detailPanel.thinking.trim() && (
+                <details className="mb-4 rounded border border-border bg-muted/30 p-3 nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
+                  <summary className="cursor-pointer select-none text-xs text-muted-foreground">模型思考过程（可展开）</summary>
+                  <div className="mt-2 max-h-56 overflow-y-auto nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
+                    <div
+                      className="prose prose-slate dark:prose-invert max-w-none prose-p:text-muted-foreground prose-li:text-muted-foreground prose-code:text-[11px] prose-pre:text-[11px] prose-strong:text-foreground/80"
+                      style={{
+                        fontSize: `${Math.max(12, detailFontSize - 2)}px`,
+                        lineHeight: 1.65
+                      }}
+                    >
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailPanel.thinking}</ReactMarkdown>
+                    </div>
+                  </div>
+                </details>
               )}
               <div
                 className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground"

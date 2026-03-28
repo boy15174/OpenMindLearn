@@ -69,6 +69,7 @@ export interface VersionDialogState {
 export interface DetailPanelState {
   nodeId: string
   content: string
+  thinking: string
   question: string
 }
 

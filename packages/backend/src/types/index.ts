@@ -31,6 +31,7 @@ export interface Region {
 export interface Node {
   id: string
   content: string
+  thinking?: string
   question?: string
   position?: { x: number; y: number }
   width?: number
