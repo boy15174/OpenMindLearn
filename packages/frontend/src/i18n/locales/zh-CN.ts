@@ -79,6 +79,9 @@ export const zhCN = {
   'canvas.regions.manualIdsPlaceholder': '初始化参考节点 ID（可选，逗号分隔；仅用于创建时计算区域大小）',
   'canvas.regions.selectedNodes': '当前选中节点：{count}（留空时会以选中节点初始化区域）',
   'canvas.regions.create': '创建区域',
+  'canvas.regions.cancelCreate': '取消创建',
+  'canvas.regions.dragHint': '点击“创建区域”后，在画布按下并拖拽可直接生成区域。',
+  'canvas.regions.dragHintActive': '拖拽创建模式已开启：在画布空白处按下并拖动，松开后完成创建（Esc 取消）。',
   'canvas.regions.none': '还没有区域',
   'canvas.regions.coveredNodes': '覆盖节点：{count}',
   'canvas.regions.width': '宽度',
@@ -159,4 +162,3 @@ export const zhCN = {
   'confirm.newUnsaved': '当前文件未保存，确定要新建吗？',
   'app.syncLLMFailed': '同步 LLM 配置失败:'
 } as const
-

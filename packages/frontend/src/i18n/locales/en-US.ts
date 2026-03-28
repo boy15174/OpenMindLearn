@@ -79,6 +79,9 @@ export const enUS = {
   'canvas.regions.manualIdsPlaceholder': 'Seed node IDs (optional, comma-separated; only used to infer initial region size)',
   'canvas.regions.selectedNodes': 'Selected nodes: {count} (leave empty to infer from selected nodes)',
   'canvas.regions.create': 'Create Region',
+  'canvas.regions.cancelCreate': 'Cancel Create',
+  'canvas.regions.dragHint': 'Click "Create Region", then drag on the canvas to create a region directly.',
+  'canvas.regions.dragHintActive': 'Drag-create mode is on: press and drag on empty canvas, then release to finish (Esc to cancel).',
   'canvas.regions.none': 'No regions yet',
   'canvas.regions.coveredNodes': 'Covered nodes: {count}',
   'canvas.regions.width': 'Width',
@@ -159,4 +162,3 @@ export const enUS = {
   'confirm.newUnsaved': 'Current file is not saved. Create a new one anyway?',
   'app.syncLLMFailed': 'Failed to sync LLM config:'
 } as const
-

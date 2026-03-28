@@ -4,28 +4,51 @@ import { useToastStore } from '../stores/toastStore'
 import type { Region } from '../types'
 import type { CanvasMode, RegionBox, RegionDragState } from '../types/canvas'
 import {
-  REGION_DEFAULT_WIDTH, REGION_DEFAULT_HEIGHT,
   REGION_MIN_WIDTH, REGION_MIN_HEIGHT,
 } from '../types/canvas'
-import { normalizeRegionsForRuntime, pointInRegion, resizeRegionFromHandle, inferRegionRectFromNodeIds } from '../utils/region'
+import { normalizeRegionsForRuntime, pointInRegion, resizeRegionFromHandle } from '../utils/region'
 import { getNodeWidth, getNodeHeight } from '../utils/nodeDimension'
 import { tFromSettings } from './useI18n'
+
+interface RegionCreateDraft {
+  startPointer: { x: number; y: number }
+  currentPointer: { x: number; y: number }
+  startClient: { x: number; y: number }
+  currentClient: { x: number; y: number }
+}
+
+function buildRegionRectFromDrag(
+  start: { x: number; y: number },
+  current: { x: number; y: number }
+): { x: number; y: number; width: number; height: number } {
+  const draggingRight = current.x >= start.x
+  const draggingDown = current.y >= start.y
+  const width = Math.max(REGION_MIN_WIDTH, Math.abs(current.x - start.x))
+  const height = Math.max(REGION_MIN_HEIGHT, Math.abs(current.y - start.y))
+
+  return {
+    x: draggingRight ? start.x : start.x - width,
+    y: draggingDown ? start.y : start.y - height,
+    width,
+    height
+  }
+}
 
 export function useCanvasRegions(
   nodes: any[],
   setNodes: (updater: any) => void,
   canvasMode: CanvasMode,
-  selectedNodeIds: string[],
-  getCanvasCenterFlowPosition: () => { x: number; y: number }
+  interactionEnabled: boolean
 ) {
   const [regions, setRegions] = useState<Region[]>([])
   const [regionDrag, setRegionDrag] = useState<RegionDragState | null>(null)
+  const [regionCreateMode, setRegionCreateMode] = useState(false)
+  const [regionCreateDraft, setRegionCreateDraft] = useState<RegionCreateDraft | null>(null)
   const [regionTitleEdit, setRegionTitleEdit] = useState<{ regionId: string; draft: string } | null>(null)
   const [showRegionPanel, setShowRegionPanel] = useState(false)
   const [newRegionName, setNewRegionName] = useState('')
   const [newRegionColor, setNewRegionColor] = useState('#22c55e')
   const [newRegionDescription, setNewRegionDescription] = useState('')
-  const [manualRegionNodeIds, setManualRegionNodeIds] = useState('')
 
   const { screenToFlowPosition } = useReactFlow()
   const { showToast } = useToastStore()
@@ -59,38 +82,43 @@ export function useCanvasRegions(
     return map
   }, [nodes, regionBoxes])
 
-  const handleCreateRegion = useCallback(() => {
-    const parsedManualIds = manualRegionNodeIds
-      .split(/[,，\n]/g)
-      .map((item) => item.trim())
-      .filter(Boolean)
+  const handleToggleRegionCreateMode = useCallback(() => {
+    if (!interactionEnabled) return
+    setRegionDrag(null)
+    setRegionTitleEdit(null)
+    setRegionCreateDraft(null)
+    setRegionCreateMode((prev) => !prev)
+  }, [interactionEnabled])
 
-    const sourceIds = parsedManualIds.length > 0 ? parsedManualIds : selectedNodeIds
-    const validNodeIdSet = new Set(nodes.map((node: any) => node.id))
-    const validIds = Array.from(new Set(sourceIds)).filter((id) => validNodeIdSet.has(id))
-    const inferredRect = inferRegionRectFromNodeIds(validIds, nodes)
-    const center = getCanvasCenterFlowPosition()
+  const handlePaneMouseDownForRegionCreate = useCallback((event: MouseEvent | React.MouseEvent) => {
+    if (canvasMode !== 'learn' || !interactionEnabled || !regionCreateMode) return false
+    if (event.button !== 0) return false
 
-    const region: Region = {
-      id: `region-${Date.now()}`,
-      name: newRegionName.trim() || `${tFromSettings('canvas.regions.button')} ${regions.length + 1}`,
-      color: newRegionColor,
-      description: newRegionDescription.trim(),
-      x: inferredRect?.x ?? center.x - REGION_DEFAULT_WIDTH / 2,
-      y: inferredRect?.y ?? center.y - REGION_DEFAULT_HEIGHT / 2,
-      width: inferredRect?.width ?? REGION_DEFAULT_WIDTH,
-      height: inferredRect?.height ?? REGION_DEFAULT_HEIGHT,
-      createdAt: new Date().toISOString()
-    }
+    const target = event.target as HTMLElement | null
+    if (!target) return false
+    if (target.closest('.react-flow__node') || target.closest('.react-flow__edge') || target.closest('.react-flow__controls')) return false
+    if (!target.closest('.react-flow__pane')) return false
 
-    setRegions((prev) => [...prev, region])
-    setNewRegionName('')
-    setNewRegionDescription('')
-    setManualRegionNodeIds('')
-    showToast(tFromSettings('toast.regionCreated'), 'success')
-  }, [getCanvasCenterFlowPosition, manualRegionNodeIds, newRegionColor, newRegionDescription, newRegionName, nodes, regions.length, selectedNodeIds, showToast])
+    event.preventDefault()
+    event.stopPropagation()
+
+    const startPointer = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY
+    })
+    setRegionDrag(null)
+    setRegionTitleEdit(null)
+    setRegionCreateDraft({
+      startPointer,
+      currentPointer: startPointer,
+      startClient: { x: event.clientX, y: event.clientY },
+      currentClient: { x: event.clientX, y: event.clientY }
+    })
+    return true
+  }, [canvasMode, interactionEnabled, regionCreateMode, screenToFlowPosition])
 
   const handleUpdateRegion = useCallback((regionId: string, patch: Partial<Region>) => {
+    if (!interactionEnabled) return
     setRegions((prev) =>
       prev.map((region) => {
         if (region.id !== regionId) return region
@@ -104,28 +132,34 @@ export function useCanvasRegions(
         }
       })
     )
-  }, [])
+  }, [interactionEnabled])
 
   const handleDeleteRegion = useCallback((regionId: string) => {
+    if (!interactionEnabled) return
     setRegions((prev) => prev.filter((region) => region.id !== regionId))
-  }, [])
+  }, [interactionEnabled])
 
   const startRegionTitleEdit = useCallback((regionId: string, currentName: string) => {
+    if (!interactionEnabled) return
     setRegionDrag(null)
     setRegionTitleEdit({
       regionId,
       draft: currentName
     })
-  }, [])
+  }, [interactionEnabled])
 
   const commitRegionTitleEdit = useCallback(() => {
+    if (!interactionEnabled) {
+      setRegionTitleEdit(null)
+      return
+    }
     if (!regionTitleEdit) return
     const nextName = regionTitleEdit.draft.trim()
     if (nextName) {
       handleUpdateRegion(regionTitleEdit.regionId, { name: nextName })
     }
     setRegionTitleEdit(null)
-  }, [handleUpdateRegion, regionTitleEdit])
+  }, [handleUpdateRegion, interactionEnabled, regionTitleEdit])
 
   useEffect(() => {
     if (!regionTitleEdit) return
@@ -134,7 +168,7 @@ export function useCanvasRegions(
   }, [regionTitleEdit, regions])
 
   const handleStartRegionDrag = useCallback((event: React.MouseEvent, box: RegionBox) => {
-    if (canvasMode !== 'learn') return
+    if (canvasMode !== 'learn' || !interactionEnabled) return
     event.preventDefault()
     event.stopPropagation()
 
@@ -163,11 +197,11 @@ export function useCanvasRegions(
       startRegion: { x: box.x, y: box.y, width: box.width, height: box.height },
       startNodePositions
     })
-  }, [canvasMode, nodes, screenToFlowPosition])
+  }, [canvasMode, interactionEnabled, nodes, screenToFlowPosition])
 
   const handleStartRegionResize = useCallback(
     (event: React.MouseEvent, box: RegionBox, handle: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w') => {
-      if (canvasMode !== 'learn') return
+      if (canvasMode !== 'learn' || !interactionEnabled) return
       event.preventDefault()
       event.stopPropagation()
 
@@ -185,7 +219,7 @@ export function useCanvasRegions(
         startNodePositions: {}
       })
     },
-    [canvasMode, screenToFlowPosition]
+    [canvasMode, interactionEnabled, screenToFlowPosition]
   )
 
   useEffect(() => {
@@ -251,11 +285,99 @@ export function useCanvasRegions(
     }
   }, [regionDrag, screenToFlowPosition, setNodes])
 
+  useEffect(() => {
+    if (!regionCreateDraft) return
+
+    const onMouseMove = (event: MouseEvent) => {
+      const currentPointer = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY
+      })
+      setRegionCreateDraft((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          currentPointer,
+          currentClient: { x: event.clientX, y: event.clientY }
+        }
+      })
+    }
+
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button !== 0) return
+      const dragDeltaX = Math.abs(event.clientX - regionCreateDraft.startClient.x)
+      const dragDeltaY = Math.abs(event.clientY - regionCreateDraft.startClient.y)
+      if (dragDeltaX < 6 && dragDeltaY < 6) {
+        setRegionCreateDraft(null)
+        return
+      }
+      const endPointer = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY
+      })
+      const nextRect = buildRegionRectFromDrag(regionCreateDraft.startPointer, endPointer)
+
+      const region: Region = {
+        id: `region-${Date.now()}`,
+        name: newRegionName.trim() || `${tFromSettings('canvas.regions.button')} ${regions.length + 1}`,
+        color: newRegionColor,
+        description: newRegionDescription.trim(),
+        x: nextRect.x,
+        y: nextRect.y,
+        width: nextRect.width,
+        height: nextRect.height,
+        createdAt: new Date().toISOString()
+      }
+
+      setRegions((prev) => [...prev, region])
+      setNewRegionName('')
+      setNewRegionDescription('')
+      setRegionCreateDraft(null)
+      setRegionCreateMode(false)
+      showToast(tFromSettings('toast.regionCreated'), 'success')
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [newRegionColor, newRegionDescription, newRegionName, regionCreateDraft, regions.length, screenToFlowPosition, showToast])
+
+  useEffect(() => {
+    if (!regionCreateMode) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setRegionCreateDraft(null)
+      setRegionCreateMode(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [regionCreateMode])
+
+  useEffect(() => {
+    if (interactionEnabled) return
+    setRegionDrag(null)
+    setRegionCreateDraft(null)
+    setRegionCreateMode(false)
+    setRegionTitleEdit(null)
+  }, [interactionEnabled])
+
+  useEffect(() => {
+    if (canvasMode === 'learn') return
+    setRegionCreateDraft(null)
+    setRegionCreateMode(false)
+  }, [canvasMode])
+
   return {
     regions,
     setRegions,
     regionDrag,
     setRegionDrag,
+    regionCreateMode,
+    setRegionCreateMode,
+    regionCreateDraft,
     regionTitleEdit,
     setRegionTitleEdit,
     showRegionPanel,
@@ -266,11 +388,10 @@ export function useCanvasRegions(
     setNewRegionColor,
     newRegionDescription,
     setNewRegionDescription,
-    manualRegionNodeIds,
-    setManualRegionNodeIds,
     regionBoxes,
     regionCoveredNodeCount,
-    handleCreateRegion,
+    handleToggleRegionCreateMode,
+    handlePaneMouseDownForRegionCreate,
     handleUpdateRegion,
     handleDeleteRegion,
     startRegionTitleEdit,
