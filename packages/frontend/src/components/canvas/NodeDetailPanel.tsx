@@ -1,0 +1,144 @@
+import type React from 'react'
+import { X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { NodeImage } from '../../types'
+import type { DetailPanelState } from '../../types/canvas'
+
+interface NodeDetailPanelProps {
+  detailPanel: DetailPanelState | null
+  detailPanelWidth: number
+  detailFontSize: number
+  nodes: Array<{ id: string; data?: Record<string, unknown> }>
+  onStartResize: (event: React.MouseEvent) => void
+  onChangeFontSize: (next: number | ((current: number) => number)) => void
+  onClose: () => void
+  onPreviewImage: (src: string) => void
+  t: (key: string, params?: Record<string, string | number>) => string
+}
+
+export function NodeDetailPanel({
+  detailPanel,
+  detailPanelWidth,
+  detailFontSize,
+  nodes,
+  onStartResize,
+  onChangeFontSize,
+  onClose,
+  onPreviewImage,
+  t
+}: NodeDetailPanelProps) {
+  if (!detailPanel) return null
+
+  const detailNode = nodes.find((n) => n.id === detailPanel.nodeId)
+  const detailImages: NodeImage[] = (detailNode?.data?.images as NodeImage[]) || []
+
+  return (
+    <div
+      className="relative min-h-0 bg-background border-l border-border flex flex-col shadow-lg shrink-0"
+      style={{ width: `${detailPanelWidth}px` }}
+    >
+      <div
+        className="absolute left-0 top-0 h-full w-2 -translate-x-1/2 cursor-col-resize z-50"
+        onMouseDown={onStartResize}
+      />
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">{t('canvas.detail.title')}</div>
+          <div className="text-[11px] text-muted-foreground truncate">ID: {detailPanel.nodeId}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{t('canvas.detail.fontSize')}</span>
+          <button
+            onClick={() => onChangeFontSize((size) => Math.max(12, size - 1))}
+            className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
+            title={t('canvas.detail.fontDecrease')}
+          >
+            A-
+          </button>
+          <input
+            type="range"
+            min={12}
+            max={24}
+            value={detailFontSize}
+            onChange={(e) => onChangeFontSize(Number(e.target.value))}
+            className="w-24"
+          />
+          <button
+            onClick={() => onChangeFontSize((size) => Math.min(24, size + 1))}
+            className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
+            title={t('canvas.detail.fontIncrease')}
+          >
+            A+
+          </button>
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-accent transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5" onWheelCapture={(event) => event.stopPropagation()}>
+        {detailPanel.question.trim() && (
+          <div className="mb-4 rounded border border-border bg-muted/40 p-3">
+            <div className="text-xs text-muted-foreground mb-1">{t('canvas.detail.question')}</div>
+            <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detailPanel.question}</div>
+          </div>
+        )}
+        {detailPanel.thinking.trim() && (
+          <details className="mb-4 rounded border border-border bg-muted/30 p-3 nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
+            <summary className="cursor-pointer select-none text-xs text-muted-foreground">{t('canvas.detail.thinking')}</summary>
+            <div className="mt-2 max-h-56 overflow-y-auto nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
+              <div
+                className="prose prose-slate dark:prose-invert max-w-none prose-p:text-muted-foreground prose-li:text-muted-foreground prose-code:text-[11px] prose-pre:text-[11px] prose-strong:text-foreground/80"
+                style={{
+                  fontSize: `${Math.max(12, detailFontSize - 2)}px`,
+                  lineHeight: 1.65
+                }}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailPanel.thinking}</ReactMarkdown>
+              </div>
+            </div>
+          </details>
+        )}
+        <div
+          className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground"
+          style={{
+            fontSize: `${detailFontSize}px`,
+            lineHeight: 1.7
+          }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{detailPanel.content}</ReactMarkdown>
+        </div>
+
+        {detailImages.length > 0 && (
+          <div className="mt-5 rounded-xl border border-border/70 bg-muted/20 p-3">
+            <div className="mb-2 inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-1 text-xs text-muted-foreground">
+              {t('canvas.detail.referenceImages', { count: detailImages.length })}
+            </div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+              {detailImages.map((img) => (
+                <button
+                  key={img.id}
+                  type="button"
+                  onClick={() => onPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
+                  className="group relative overflow-hidden rounded-lg border border-border/70 bg-background text-left shadow-sm transition-all hover:border-primary/45 hover:shadow"
+                  title={img.name || t('node.imageAttachment')}
+                >
+                  <img
+                    src={`data:${img.mimeType};base64,${img.base64}`}
+                    alt={img.name || t('node.imageAttachment')}
+                    className="h-32 w-full object-cover md:h-36"
+                  />
+                  {(img.name || '').trim() && (
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-2 py-1.5">
+                      <div className="line-clamp-1 text-[11px] text-white/90">{img.name}</div>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,5 +1,63 @@
 # OpenMindLearn 功能差距分析与实现总结
 
+## 2026-03-28 超大文件重构完成记录
+
+### 已完成重构
+
+1. 后端 LLM 服务模块化
+- 原文件 `packages/backend/src/services/llm.ts`（847 行）已拆分为 `packages/backend/src/services/llm/` 目录。
+- 新增子模块：
+  - `index.ts`（对外 facade）
+  - `config.ts`（运行时配置与规范化）
+  - `prompts.ts`（默认提示词与模板渲染）
+  - `adapters/openaiChat.ts`
+  - `adapters/googleGemini.ts`
+  - `parsing/thinkingExtractor.ts`
+  - `parsing/normalize.ts`
+  - `transport.ts`
+  - `types.ts`
+- `packages/backend/src/services/llm.ts` 保留为兼容导出层，现为 14 行。
+
+2. 前端 Settings Store 模块化
+- 原文件 `packages/frontend/src/stores/settingsStore.ts`（509 行）已拆分为 `packages/frontend/src/stores/settings/` 目录。
+- 新增子模块：
+  - `types.ts`
+  - `defaults.ts`
+  - `legacyUpgrade.ts`
+  - `normalize.ts`
+  - `store.ts`
+  - `index.ts`
+- `packages/frontend/src/stores/settingsStore.ts` 保留兼容 re-export，现为 21 行。
+
+3. Canvas 组件分层拆分
+- 原 `packages/frontend/src/components/Canvas.tsx`（1238 行）已改为兼容入口，指向新实现：
+  - `packages/frontend/src/components/canvas/Canvas.tsx`（466 行）
+- 新增子组件/子 hooks：
+  - `CanvasFlow.tsx`
+  - `CanvasSearchPanel.tsx`
+  - `CanvasRegionLayer.tsx`
+  - `CanvasRegionInteractionLayer.tsx`
+  - `CanvasRegionPanel.tsx`
+  - `CanvasFirstNodePanel.tsx`
+  - `CanvasContextMenu.tsx`
+  - `NodeDetailPanel.tsx`
+  - `MetaEditorDialog.tsx`
+  - `VersionDialog.tsx`
+  - `hooks/useDetailPanelResize.ts`
+  - `hooks/useGlobalImagePaste.ts`
+  - `hooks/useSourceLinkHighlight.ts`
+
+### 验证结果
+
+- `pnpm -C packages/frontend build` 通过
+- `pnpm -C packages/backend build` 通过
+
+### 当前状态说明
+
+- 代码已完成按职责拆分与兼容迁移。
+- 现阶段代码文件中已不再存在超过 500 行的 LLM 与 Settings 核心文件。
+- Canvas 主实现压缩至 500 行以内（466 行），并通过拆分降低了后续迭代风险。
+
 ## 已完成的功能实现
 
 ### 后端实现 ✅
