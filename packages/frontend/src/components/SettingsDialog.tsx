@@ -18,6 +18,8 @@ interface SettingsDialogProps {
   onClose: () => void
 }
 
+const RESET_BUTTON_CLASS = 'px-2.5 py-1 text-xs rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors'
+
 function getLocalePromptConfig(llmSettings: ReturnType<typeof useSettingsStore.getState>['llmSettings'], locale: LocaleCode) {
   return llmSettings.localizedPrompts[locale] || {
     systemPrompt: DEFAULT_SYSTEM_PROMPT_BY_LOCALE[locale],
@@ -301,7 +303,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
                 <p className="text-xs text-muted-foreground">{t('settings.contextDepth.help')}</p>
                 <div className="pt-1">
-                  <label className="block text-sm font-medium mb-1">{t('settings.answerAnchors')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.answerAnchors')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setAnswerAnchorKeywordsText(DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE[promptLocale].join('\n'))}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={answerAnchorKeywordsText}
                     onChange={(e) => setAnswerAnchorKeywordsText(e.target.value)}
@@ -316,7 +327,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               <div className="rounded border border-border p-3 space-y-3">
                 <div className="text-sm font-medium">{t('settings.section.promptCustom')}</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('settings.systemPrompt')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.systemPrompt')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT_BY_LOCALE[promptLocale])}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={systemPrompt}
                     onChange={(e) => setSystemPrompt(e.target.value)}
@@ -327,7 +347,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('settings.template.direct')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.template.direct')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setDirectExpandPrompt(DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].directExpand)}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={directExpandPrompt}
                     onChange={(e) => setDirectExpandPrompt(e.target.value)}
@@ -337,7 +366,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('settings.template.targeted')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.template.targeted')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setTargetedPrompt(DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].targetedQuestion)}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={targetedPrompt}
                     onChange={(e) => setTargetedPrompt(e.target.value)}
@@ -347,7 +385,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('settings.template.customContext')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.template.customContext')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setCustomContextPrompt(DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].customContextExpand)}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={customContextPrompt}
                     onChange={(e) => setCustomContextPrompt(e.target.value)}
@@ -357,7 +404,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('settings.template.contextEnvelope')}</label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium">{t('settings.template.contextEnvelope')}</label>
+                    <button
+                      type="button"
+                      onClick={() => setContextEnvelopePrompt(DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].contextEnvelope)}
+                      className={RESET_BUTTON_CLASS}
+                    >
+                      {t('settings.prompt.resetDefaults')}
+                    </button>
+                  </div>
                   <textarea
                     value={contextEnvelopePrompt}
                     onChange={(e) => setContextEnvelopePrompt(e.target.value)}
@@ -434,4 +490,3 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     </div>
   )
 }
-

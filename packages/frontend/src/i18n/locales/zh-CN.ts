@@ -43,6 +43,7 @@ export const zhCN = {
   'settings.promptLocale': 'Prompt 语言',
   'settings.promptLocale.zh': '中文',
   'settings.promptLocale.en': '英文',
+  'settings.prompt.resetDefaults': '还原默认',
   'settings.systemPrompt': 'System Prompt',
   'settings.systemPrompt.placeholder': '系统提示词',
   'settings.template.direct': '直接展开模板（变量：{{text}}）',

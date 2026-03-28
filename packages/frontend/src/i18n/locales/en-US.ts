@@ -43,6 +43,7 @@ export const enUS = {
   'settings.promptLocale': 'Prompt Language',
   'settings.promptLocale.zh': 'Chinese',
   'settings.promptLocale.en': 'English',
+  'settings.prompt.resetDefaults': 'Reset Defaults',
   'settings.systemPrompt': 'System Prompt',
   'settings.systemPrompt.placeholder': 'System prompt',
   'settings.template.direct': 'Direct Expand Template (variable: {{text}})',
