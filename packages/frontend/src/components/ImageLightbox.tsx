@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-react'
+import { useI18n } from '../hooks/useI18n'
 
 interface ImageLightboxProps {
   src: string
@@ -12,6 +13,7 @@ const MAX_ZOOM = 5
 const ZOOM_STEP = 0.25
 
 export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
+  const { t } = useI18n()
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const dragging = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
@@ -78,7 +80,7 @@ export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
         <button
           onClick={handleZoomOut}
           className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          title="缩小"
+          title={t('lightbox.zoomOut')}
         >
           <ZoomOut className="w-4 h-4" />
         </button>
@@ -88,14 +90,14 @@ export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
         <button
           onClick={handleZoomIn}
           className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          title="放大"
+          title={t('lightbox.zoomIn')}
         >
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
           onClick={handleReset}
           className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          title="重置"
+          title={t('lightbox.reset')}
         >
           <RotateCcw className="w-4 h-4" />
         </button>
@@ -103,7 +105,7 @@ export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
         <button
           onClick={onClose}
           className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          title="关闭"
+          title={t('lightbox.close')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -120,7 +122,7 @@ export function ImageLightbox({ src, onClose }: ImageLightboxProps) {
       >
         <img
           src={src}
-          alt="预览"
+          alt={t('lightbox.previewAlt')}
           className="select-none"
           draggable={false}
           style={{

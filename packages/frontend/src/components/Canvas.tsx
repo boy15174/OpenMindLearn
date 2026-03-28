@@ -23,6 +23,7 @@ import { useCanvasSearch } from '../hooks/useCanvasSearch'
 import { useCanvasRegions } from '../hooks/useCanvasRegions'
 import { useCanvasNodes } from '../hooks/useCanvasNodes'
 import { useCanvasFileIO } from '../hooks/useCanvasFileIO'
+import { useI18n } from '../hooks/useI18n'
 
 const nodeTypes = { custom: NodeCard }
 
@@ -42,6 +43,7 @@ export function Canvas() {
 
   const theme = useSettingsStore((state) => state.uiSettings.theme)
   const { showToast } = useToastStore()
+  const { t } = useI18n()
 
   // --- Hook 4: Nodes (must come before regions since regions needs nodes) ---
   // We pass a placeholder regions initially; the dirty-flag effect inside
@@ -209,7 +211,7 @@ export function Canvas() {
         // If no nodes on canvas, add to initial images
         if (nodes.length === 0) {
           setInitialImages((prev) => [...prev, ...newImages])
-          showToast(`已粘贴 ${newImages.length} 张图片`, 'success')
+          showToast(t('canvas.toast.pastedImages', { count: newImages.length }), 'success')
           return
         }
 
@@ -217,11 +219,11 @@ export function Canvas() {
         const selected = nodes.filter((n) => n.selected)
         if (selected.length === 1) {
           handleImagesChange(selected[0].id, [...((selected[0].data?.images as NodeImage[]) || []), ...newImages])
-          showToast(`已粘贴 ${newImages.length} 张图片到选中节点`, 'success')
+          showToast(t('canvas.toast.pastedImagesToSelected', { count: newImages.length }), 'success')
           return
         }
 
-        showToast('请先选中一个节点再粘贴图片', 'error')
+        showToast(t('canvas.toast.selectNodeFirst'), 'error')
       })
     }
 
@@ -284,8 +286,8 @@ export function Canvas() {
     createFirstNode(text, false, text, initialImages.length > 0 ? initialImages : undefined)
     setInitialInput('')
     setInitialImages([])
-    showToast('首节点已创建', 'success')
-  }, [createFirstNode, initialInput, initialImages, showToast])
+    showToast(t('canvas.toast.firstNodeCreated'), 'success')
+  }, [createFirstNode, initialInput, initialImages, showToast, t])
 
   const handleGenerateFirstFromPrompt = useCallback(async () => {
     const prompt = initialInput.trim()
@@ -298,14 +300,14 @@ export function Canvas() {
       createFirstNode(result.content || '', false, prompt, images, result.thinking || '')
       setInitialInput('')
       setInitialImages([])
-      showToast('首节点生成成功', 'success')
+      showToast(t('canvas.toast.firstNodeGenerated'), 'success')
     } catch (error) {
-      console.error('首节点生成失败:', error)
-      showToast('首节点生成失败，请重试', 'error')
+      console.error(t('canvas.toast.firstNodeGenerateFailed'), error)
+      showToast(t('canvas.toast.firstNodeGenerateFailed'), 'error')
     } finally {
       setInitialGenerating(false)
     }
-  }, [createFirstNode, initialInput, initialImages, showToast])
+  }, [createFirstNode, initialInput, initialImages, showToast, t])
 
   const handleInitialImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -367,28 +369,28 @@ export function Canvas() {
                     }
                   }}
                   className="w-full text-sm outline-none bg-transparent"
-                  placeholder="搜索内容 / 标签 / 备注..."
+                  placeholder={t('canvas.search.placeholder')}
                 />
               </div>
 
               {searchQuery.trim() && (
                 <div className="mt-2 space-y-2">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>结果 {searchResults.length === 0 ? 0 : activeSearchIndex + 1} / {searchResults.length}</span>
+                    <span>{t('canvas.search.result', { current: searchResults.length === 0 ? 0 : activeSearchIndex + 1, total: searchResults.length })}</span>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => focusSearchResult(activeSearchIndex - 1)}
                         disabled={searchResults.length === 0}
                         className="px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-40"
                       >
-                        上一个
+                        {t('canvas.search.prev')}
                       </button>
                       <button
                         onClick={() => focusSearchResult(activeSearchIndex + 1)}
                         disabled={searchResults.length === 0}
                         className="px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-40"
                       >
-                        下一个
+                        {t('canvas.search.next')}
                       </button>
                     </div>
                   </div>
@@ -408,7 +410,7 @@ export function Canvas() {
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background/95 shadow-md text-sm hover:bg-accent backdrop-blur"
               >
                 <Layers className="w-4 h-4" />
-                区域
+                {t('canvas.regions.button')}
               </button>
             )}
           </div>
@@ -554,7 +556,7 @@ export function Canvas() {
           {canvasMode === 'learn' && showRegionPanel && (
             <div className="absolute top-16 right-3 z-40 w-[360px] max-h-[70vh] overflow-y-auto bg-background rounded-xl border border-border shadow-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">区域标注</h3>
+                <h3 className="text-sm font-semibold">{t('canvas.regions.panelTitle')}</h3>
                 <button
                   onClick={() => setShowRegionPanel(false)}
                   className="p-1 rounded hover:bg-accent"
@@ -568,10 +570,10 @@ export function Canvas() {
                   value={newRegionName}
                   onChange={(e) => setNewRegionName(e.target.value)}
                   className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background"
-                  placeholder="区域标题"
+                  placeholder={t('canvas.regions.newNamePlaceholder')}
                 />
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted-foreground">颜色</label>
+                  <label className="text-xs text-muted-foreground">{t('canvas.regions.color')}</label>
                   <input
                     type="color"
                     value={newRegionColor}
@@ -584,29 +586,29 @@ export function Canvas() {
                   onChange={(e) => setNewRegionDescription(e.target.value)}
                   rows={2}
                   className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background resize-none"
-                  placeholder="区域说明（可选）"
+                  placeholder={t('canvas.regions.descriptionPlaceholder')}
                 />
                 <textarea
                   value={manualRegionNodeIds}
                   onChange={(e) => setManualRegionNodeIds(e.target.value)}
                   rows={2}
                   className="w-full px-2 py-1.5 text-xs rounded border border-border bg-background resize-none"
-                  placeholder="初始化参考节点 ID（可选，逗号分隔；仅用于创建时计算区域大小）"
+                  placeholder={t('canvas.regions.manualIdsPlaceholder')}
                 />
                 <div className="text-xs text-muted-foreground">
-                  当前选中节点：{selectedNodeIds.length}（留空时会以选中节点初始化区域）
+                  {t('canvas.regions.selectedNodes', { count: selectedNodeIds.length })}
                 </div>
                 <button
                   onClick={handleCreateRegion}
                   className="w-full px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm hover:bg-primary/90"
                 >
-                  创建区域
+                  {t('canvas.regions.create')}
                 </button>
               </div>
 
               <div className="space-y-2">
                 {regions.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-3">还没有区域</p>
+                  <p className="text-xs text-muted-foreground text-center py-3">{t('canvas.regions.none')}</p>
                 )}
 
                 {regions.map((region) => (
@@ -624,7 +626,7 @@ export function Canvas() {
                         className="w-10 h-8 p-0 border border-border rounded"
                       />
                       <div className="flex-1 text-xs text-muted-foreground">
-                        覆盖节点：{regionCoveredNodeCount.get(region.id) || 0}
+                        {t('canvas.regions.coveredNodes', { count: regionCoveredNodeCount.get(region.id) || 0 })}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -656,7 +658,7 @@ export function Canvas() {
                           if (Number.isFinite(value)) handleUpdateRegion(region.id, { width: value })
                         }}
                         className="w-full px-2 py-1 text-xs rounded border border-border"
-                        placeholder="宽度"
+                        placeholder={t('canvas.regions.width')}
                       />
                       <input
                         type="number"
@@ -666,7 +668,7 @@ export function Canvas() {
                           if (Number.isFinite(value)) handleUpdateRegion(region.id, { height: value })
                         }}
                         className="w-full px-2 py-1 text-xs rounded border border-border"
-                        placeholder="高度"
+                        placeholder={t('canvas.regions.height')}
                       />
                     </div>
                     <textarea
@@ -674,13 +676,13 @@ export function Canvas() {
                       onChange={(e) => handleUpdateRegion(region.id, { description: e.target.value })}
                       rows={2}
                       className="w-full px-2 py-1 text-xs rounded border border-border resize-none"
-                      placeholder="区域说明"
+                      placeholder={t('canvas.regions.description')}
                     />
                     <button
                       onClick={() => handleDeleteRegion(region.id)}
                       className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
                     >
-                      <Trash2 className="w-3 h-3" /> 删除
+                      <Trash2 className="w-3 h-3" /> {t('canvas.regions.delete')}
                     </button>
                   </div>
                 ))}
@@ -691,21 +693,21 @@ export function Canvas() {
           {nodes.length === 0 && canvasMode === 'learn' && (
             <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
               <div className="pointer-events-auto w-full max-w-[560px] bg-background/95 border border-border rounded-xl shadow-lg p-4 backdrop-blur">
-                <h3 className="text-base font-semibold text-foreground">创建首个知识节点</h3>
+                <h3 className="text-base font-semibold text-foreground">{t('canvas.firstNode.title')}</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  粘贴文本可直接创建首节点，或输入 Prompt 后一键生成。
+                  {t('canvas.firstNode.description')}
                 </p>
                 <textarea
                   value={initialInput}
                   onChange={(e) => setInitialInput(e.target.value)}
                   rows={6}
                   className="mt-3 w-full p-3 text-sm rounded border border-border/70 bg-background resize-none outline-none focus:border-primary/50"
-                  placeholder="粘贴文本，或输入你希望生成的主题..."
+                  placeholder={t('canvas.firstNode.placeholder')}
                 />
                 {initialImages.length > 0 && (
                   <div className="mt-3 rounded-lg border border-border/70 bg-muted/25 p-2">
                     <div className="mb-2 inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-                      已添加图片 {initialImages.length}
+                      {t('canvas.firstNode.imagesAdded', { count: initialImages.length })}
                     </div>
                     <div className="flex gap-2 overflow-x-auto pb-0.5">
                       {initialImages.map((img) => (
@@ -714,18 +716,18 @@ export function Canvas() {
                             type="button"
                             className="h-20 w-28 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm transition-all hover:border-primary/45 hover:shadow"
                             onClick={() => setPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
-                            title={img.name || '附件图片'}
+                            title={img.name || t('node.imageAttachment')}
                           >
                             <img
                               src={`data:${img.mimeType};base64,${img.base64}`}
-                              alt={img.name || '附件图片'}
+                              alt={img.name || t('node.imageAttachment')}
                               className="h-full w-full object-cover"
                             />
                           </button>
                           <button
                             onClick={() => setInitialImages((prev) => prev.filter(i => i.id !== img.id))}
                             className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                            title="移除图片"
+                            title={t('node.removeImage')}
                           >
                             <X className="w-2.5 h-2.5" />
                           </button>
@@ -737,7 +739,7 @@ export function Canvas() {
                 <div className="mt-3 flex items-center justify-between">
                   <label className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-border hover:bg-accent cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
                     <ImagePlus className="w-4 h-4" />
-                    添加图片
+                    {t('canvas.firstNode.addImage')}
                     <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={handleInitialImageUpload} />
                   </label>
                   <div className="flex items-center gap-2">
@@ -747,7 +749,7 @@ export function Canvas() {
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-border hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ClipboardPaste className="w-4 h-4" />
-                    粘贴文本创建
+                    {t('canvas.firstNode.createFromText')}
                   </button>
                   <button
                     onClick={handleGenerateFirstFromPrompt}
@@ -755,7 +757,7 @@ export function Canvas() {
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Sparkles className="w-4 h-4" />
-                    {initialGenerating ? '生成中...' : 'Prompt 生成'}
+                    {initialGenerating ? t('common.generating') : t('canvas.firstNode.generateFromPrompt')}
                   </button>
                   </div>
                 </div>
@@ -766,8 +768,8 @@ export function Canvas() {
           {nodes.length === 0 && canvasMode === 'view' && (
             <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-4">
               <div className="pointer-events-auto w-full max-w-[520px] bg-background/95 border border-border rounded-xl shadow-lg p-4 text-center">
-                <h3 className="text-base font-semibold text-foreground">查看模式</h3>
-                <p className="text-sm text-muted-foreground mt-1">当前画布没有可复习节点。请切换到学习模式后创建内容。</p>
+                <h3 className="text-base font-semibold text-foreground">{t('canvas.viewEmpty.title')}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{t('canvas.viewEmpty.description')}</p>
               </div>
             </div>
           )}
@@ -782,7 +784,7 @@ export function Canvas() {
               {contextMenu.type === 'pane' && (
                 <MenuItem
                   icon={<Plus className="w-4 h-4" />}
-                  label="创建知识节点"
+                  label={t('canvas.menu.createNode')}
                   onClick={() => {
                     createNode(contextMenu.flowPosition!)
                     setContextMenu(null)
@@ -794,7 +796,7 @@ export function Canvas() {
                 <>
                   <MenuItem
                     icon={<Eye className="w-4 h-4" />}
-                    label="查看详情"
+                    label={t('canvas.menu.viewDetail')}
                     onClick={() => {
                       if (contextMenu.nodeId) openNodeDetailById(contextMenu.nodeId)
                       setContextMenu(null)
@@ -802,7 +804,7 @@ export function Canvas() {
                   />
                   <MenuItem
                     icon={<Pencil className="w-4 h-4" />}
-                    label="编辑内容"
+                    label={t('canvas.menu.edit')}
                     onClick={() => {
                       triggerNodeEdit(contextMenu.nodeId!)
                       setContextMenu(null)
@@ -810,7 +812,7 @@ export function Canvas() {
                   />
                   <MenuItem
                     icon={<Tags className="w-4 h-4" />}
-                    label="标签与备注"
+                    label={t('canvas.menu.tagsNotes')}
                     onClick={() => {
                       openNodeMetaEditor(contextMenu.nodeId!)
                       setContextMenu(null)
@@ -818,7 +820,7 @@ export function Canvas() {
                   />
                   <MenuItem
                     icon={<History className="w-4 h-4" />}
-                    label="版本历史"
+                    label={t('canvas.menu.versionHistory')}
                     onClick={() => {
                       openVersionDialog(contextMenu.nodeId!)
                       setContextMenu(null)
@@ -826,7 +828,7 @@ export function Canvas() {
                   />
                   <MenuItem
                     icon={<Download className="w-4 h-4" />}
-                    label="导出为 Markdown"
+                    label={t('canvas.menu.exportMarkdown')}
                     onClick={() => {
                       handleExportNode(contextMenu.nodeId!)
                       setContextMenu(null)
@@ -835,7 +837,7 @@ export function Canvas() {
                   <div className="h-px bg-border mx-2 my-1" />
                   <MenuItem
                     icon={<RefreshCw className="w-4 h-4" />}
-                    label="重新生成"
+                    label={t('canvas.menu.regenerate')}
                     onClick={() => {
                       triggerNodeEdit(contextMenu.nodeId!)
                       setContextMenu(null)
@@ -851,15 +853,15 @@ export function Canvas() {
           <div className="w-[33%] min-h-0 bg-background border-l border-border flex flex-col shadow-lg">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-secondary/30">
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">节点详情</div>
+                <div className="text-sm font-medium text-foreground">{t('canvas.detail.title')}</div>
                 <div className="text-[11px] text-muted-foreground truncate">ID: {detailPanel.nodeId}</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">字号</span>
+                <span className="text-xs text-muted-foreground">{t('canvas.detail.fontSize')}</span>
                 <button
                   onClick={() => setDetailFontSize((size) => Math.max(12, size - 1))}
                   className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
-                  title="减小字号"
+                  title={t('canvas.detail.fontDecrease')}
                 >
                   A-
                 </button>
@@ -874,7 +876,7 @@ export function Canvas() {
                 <button
                   onClick={() => setDetailFontSize((size) => Math.min(24, size + 1))}
                   className="px-1.5 py-1 text-xs rounded border border-border hover:bg-accent"
-                  title="增大字号"
+                  title={t('canvas.detail.fontIncrease')}
                 >
                   A+
                 </button>
@@ -892,13 +894,13 @@ export function Canvas() {
             >
               {detailPanel.question.trim() && (
                 <div className="mb-4 rounded border border-border bg-muted/40 p-3">
-                  <div className="text-xs text-muted-foreground mb-1">问题</div>
+                  <div className="text-xs text-muted-foreground mb-1">{t('canvas.detail.question')}</div>
                   <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detailPanel.question}</div>
                 </div>
               )}
               {detailPanel.thinking.trim() && (
                 <details className="mb-4 rounded border border-border bg-muted/30 p-3 nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
-                  <summary className="cursor-pointer select-none text-xs text-muted-foreground">模型思考过程（可展开）</summary>
+                  <summary className="cursor-pointer select-none text-xs text-muted-foreground">{t('canvas.detail.thinking')}</summary>
                   <div className="mt-2 max-h-56 overflow-y-auto nowheel nodrag" onWheelCapture={(event) => event.stopPropagation()}>
                     <div
                       className="prose prose-slate dark:prose-invert max-w-none prose-p:text-muted-foreground prose-li:text-muted-foreground prose-code:text-[11px] prose-pre:text-[11px] prose-strong:text-foreground/80"
@@ -928,7 +930,7 @@ export function Canvas() {
                 return (
                   <div className="mt-5 rounded-xl border border-border/70 bg-muted/20 p-3">
                     <div className="mb-2 inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-1 text-xs text-muted-foreground">
-                      参考图片 {detailImages.length}
+                      {t('canvas.detail.referenceImages', { count: detailImages.length })}
                     </div>
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                       {detailImages.map((img) => (
@@ -937,11 +939,11 @@ export function Canvas() {
                           type="button"
                           onClick={() => setPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
                           className="group relative overflow-hidden rounded-lg border border-border/70 bg-background text-left shadow-sm transition-all hover:border-primary/45 hover:shadow"
-                          title={img.name || '附件图片'}
+                          title={img.name || t('node.imageAttachment')}
                         >
                           <img
                             src={`data:${img.mimeType};base64,${img.base64}`}
-                            alt={img.name || '附件图片'}
+                            alt={img.name || t('node.imageAttachment')}
                             className="h-32 w-full object-cover md:h-36"
                           />
                           {(img.name || '').trim() && (
@@ -969,30 +971,30 @@ export function Canvas() {
         >
           <div className="w-full max-w-[520px] bg-background text-foreground rounded-xl border border-border shadow-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">编辑标签与备注</h3>
+              <h3 className="text-sm font-semibold">{t('canvas.metaEditor.title')}</h3>
               <button onClick={() => setMetaEditor(null)} className="p-1 rounded hover:bg-accent">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">标签（逗号分隔）</label>
+              <label className="text-xs text-muted-foreground">{t('canvas.metaEditor.tags')}</label>
               <input
                 value={metaEditor.tagsText}
                 onChange={(e) => setMetaEditor({ ...metaEditor, tagsText: e.target.value })}
                 className="w-full px-3 py-2 text-sm rounded border border-border"
-                placeholder="重要, 待复习, 已掌握"
+                placeholder={t('canvas.metaEditor.tagsPlaceholder')}
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">备注</label>
+              <label className="text-xs text-muted-foreground">{t('canvas.metaEditor.note')}</label>
               <textarea
                 value={metaEditor.note}
                 onChange={(e) => setMetaEditor({ ...metaEditor, note: e.target.value })}
                 rows={5}
                 className="w-full px-3 py-2 text-sm rounded border border-border resize-none"
-                placeholder="记录你的理解、疑问或待办"
+                placeholder={t('canvas.metaEditor.notePlaceholder')}
               />
             </div>
 
@@ -1001,13 +1003,13 @@ export function Canvas() {
                 onClick={() => setMetaEditor(null)}
                 className="px-3 py-2 text-sm rounded border border-border hover:bg-accent"
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveNodeMeta}
                 className="px-3 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
               >
-                保存
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -1024,13 +1026,13 @@ export function Canvas() {
           <div className="w-full max-w-[980px] max-h-[80vh] overflow-hidden bg-background text-foreground rounded-xl border border-border shadow-xl flex">
             <div className="w-[280px] border-r border-border p-3 overflow-y-auto">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold">版本历史</h3>
+                <h3 className="text-sm font-semibold">{t('canvas.version.title')}</h3>
                 <button onClick={() => setVersionDialog(null)} className="p-1 rounded hover:bg-accent">
                   <X className="w-4 h-4" />
                 </button>
               </div>
               {versionDialog.versions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">暂无历史版本</p>
+                <p className="text-xs text-muted-foreground">{t('canvas.version.none')}</p>
               ) : (
                 <div className="space-y-1.5">
                   {versionDialog.versions.map((version, index) => (
@@ -1044,7 +1046,7 @@ export function Canvas() {
                           : 'border-border hover:bg-accent'
                       )}
                     >
-                      <div>版本 {index + 1}</div>
+                      <div>{t('canvas.version.item', { index: index + 1 })}</div>
                       <div className="text-[11px] opacity-70 mt-0.5">{new Date(version.timestamp).toLocaleString()}</div>
                     </button>
                   ))}
@@ -1054,18 +1056,18 @@ export function Canvas() {
 
             <div className="flex-1 flex flex-col">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">Diff：历史版本 vs 当前内容</div>
+                <div className="text-sm text-muted-foreground">{t('canvas.version.diffTitle')}</div>
                 <button
                   onClick={handleRestoreVersion}
                   disabled={versionDialog.versions.length === 0}
                   className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                 >
-                  恢复选中版本
+                  {t('canvas.version.restore')}
                 </button>
               </div>
               <div className="flex-1 overflow-auto p-4 bg-muted/35">
                 {versionDialog.versions.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">没有可对比内容</div>
+                  <div className="text-sm text-muted-foreground">{t('canvas.version.noDiff')}</div>
                 ) : (
                   <pre className="text-xs leading-relaxed">
                     {selectedDiffLines.map((line, index) => (

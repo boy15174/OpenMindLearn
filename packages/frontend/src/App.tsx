@@ -4,13 +4,14 @@ import { Canvas } from './components/Canvas'
 import { Toast } from './components/Toast'
 import { useSettingsStore } from './stores/settingsStore'
 import { updateLLMConfig } from './services/api'
+import { tFromSettings } from './hooks/useI18n'
 
 function LLMSettingsSync() {
   const { llmSettings } = useSettingsStore()
 
   useEffect(() => {
     updateLLMConfig(llmSettings).catch((error) => {
-      console.error('同步 LLM 配置失败:', error)
+      console.error(tFromSettings('app.syncLLMFailed'), error)
     })
   }, [llmSettings])
 
@@ -27,11 +28,35 @@ function ThemeSync() {
   return null
 }
 
+function LocaleSync() {
+  const { localeMode, localeResolved } = useSettingsStore((state) => state.uiSettings)
+  const syncLocaleFromNavigator = useSettingsStore((state) => state.syncLocaleFromNavigator)
+
+  useEffect(() => {
+    syncLocaleFromNavigator()
+  }, [localeMode, syncLocaleFromNavigator])
+
+  useEffect(() => {
+    const handleLanguageChange = () => {
+      syncLocaleFromNavigator()
+    }
+    window.addEventListener('languagechange', handleLanguageChange)
+    return () => window.removeEventListener('languagechange', handleLanguageChange)
+  }, [syncLocaleFromNavigator])
+
+  useEffect(() => {
+    document.documentElement.lang = localeResolved
+  }, [localeResolved])
+
+  return null
+}
+
 export default function App() {
   return (
     <ReactFlowProvider>
       <LLMSettingsSync />
       <ThemeSync />
+      <LocaleSync />
       <Canvas />
       <Toast />
     </ReactFlowProvider>

@@ -3,6 +3,7 @@ import { useGraphStore } from '../stores/graphStore'
 import { FileText, Save, FolderOpen, FilePlus, Settings, Eye, GraduationCap } from 'lucide-react'
 import { SettingsDialog } from './SettingsDialog'
 import type { CanvasMode } from '../types/canvas'
+import { useI18n } from '../hooks/useI18n'
 
 interface ToolbarProps {
   onSave: () => void
@@ -14,6 +15,7 @@ interface ToolbarProps {
 
 export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarProps) {
   const { fileName, isDirty, setFileName } = useGraphStore()
+  const { t } = useI18n()
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(fileName)
   const [showSettings, setShowSettings] = useState(false)
@@ -65,7 +67,7 @@ export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarPr
           </button>
         )}
         {isDirty && (
-          <span className="text-muted-foreground text-sm">• 未保存</span>
+          <span className="text-muted-foreground text-sm">• {t('toolbar.unsaved')}</span>
         )}
       </div>
 
@@ -77,10 +79,10 @@ export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarPr
               ? 'bg-background shadow-sm text-foreground border border-border'
               : 'text-muted-foreground hover:text-foreground hover:bg-accent'
           }`}
-          title="学习模式：可编辑和生成"
+          title={t('toolbar.mode.learn.title')}
         >
           <GraduationCap className="w-4 h-4" />
-          学习模式
+          {t('toolbar.mode.learn')}
         </button>
         <button
           onClick={() => onModeChange('view')}
@@ -89,10 +91,10 @@ export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarPr
               ? 'bg-background shadow-sm text-foreground border border-border'
               : 'text-muted-foreground hover:text-foreground hover:bg-accent'
           }`}
-          title="查看模式：只读画布，点击节点看详情"
+          title={t('toolbar.mode.view.title')}
         >
           <Eye className="w-4 h-4" />
-          查看模式
+          {t('toolbar.mode.view')}
         </button>
       </div>
 
@@ -101,34 +103,34 @@ export function Toolbar({ onSave, onLoad, onNew, mode, onModeChange }: ToolbarPr
         <button
           onClick={() => setShowSettings(true)}
           className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent rounded text-sm"
-          title="设置"
+          title={t('toolbar.settings.title')}
         >
           <Settings className="w-4 h-4" />
-          设置
+          {t('toolbar.settings')}
         </button>
         <button
           onClick={onNew}
           className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent rounded text-sm"
-          title="新建文件"
+          title={t('toolbar.new.title')}
         >
           <FilePlus className="w-4 h-4" />
-          新建
+          {t('toolbar.new')}
         </button>
         <button
           onClick={onLoad}
           className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent rounded text-sm"
-          title="打开文件"
+          title={t('toolbar.open.title')}
         >
           <FolderOpen className="w-4 h-4" />
-          打开
+          {t('toolbar.open')}
         </button>
         <button
           onClick={onSave}
           className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-sm"
-          title="保存文件"
+          title={t('toolbar.save.title')}
         >
           <Save className="w-4 h-4" />
-          保存
+          {t('toolbar.save')}
         </button>
       </div>
 

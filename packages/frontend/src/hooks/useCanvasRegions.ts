@@ -9,6 +9,7 @@ import {
 } from '../types/canvas'
 import { normalizeRegionsForRuntime, pointInRegion, resizeRegionFromHandle, inferRegionRectFromNodeIds } from '../utils/region'
 import { getNodeWidth, getNodeHeight } from '../utils/nodeDimension'
+import { tFromSettings } from './useI18n'
 
 export function useCanvasRegions(
   nodes: any[],
@@ -72,7 +73,7 @@ export function useCanvasRegions(
 
     const region: Region = {
       id: `region-${Date.now()}`,
-      name: newRegionName.trim() || `区域 ${regions.length + 1}`,
+      name: newRegionName.trim() || `${tFromSettings('canvas.regions.button')} ${regions.length + 1}`,
       color: newRegionColor,
       description: newRegionDescription.trim(),
       x: inferredRect?.x ?? center.x - REGION_DEFAULT_WIDTH / 2,
@@ -86,7 +87,7 @@ export function useCanvasRegions(
     setNewRegionName('')
     setNewRegionDescription('')
     setManualRegionNodeIds('')
-    showToast('区域已创建', 'success')
+    showToast(tFromSettings('toast.regionCreated'), 'success')
   }, [getCanvasCenterFlowPosition, manualRegionNodeIds, newRegionColor, newRegionDescription, newRegionName, nodes, regions.length, selectedNodeIds, showToast])
 
   const handleUpdateRegion = useCallback((regionId: string, patch: Partial<Region>) => {

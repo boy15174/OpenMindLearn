@@ -14,6 +14,7 @@ import { toPlacementNode } from '../utils/nodeDimension'
 import { calculateChildNodePosition, calculateInitialNodePosition } from '../utils/nodePosition'
 import { getNextVersions, buildNodeSnapshots, buildSourceHighlightMap } from '../utils/graphSnapshot'
 import { parseTags } from '../utils/search'
+import { tFromSettings } from './useI18n'
 
 export function useCanvasNodes(
   canvasRef: React.RefObject<HTMLDivElement>,
@@ -158,7 +159,7 @@ export function useCanvasNodes(
         height: NODE_DEFAULT_HEIGHT
       },
       data: {
-        content: '生成中...',
+        content: tFromSettings('toast.nodeGenerating'),
         thinking: '',
         question: text,
         nodeId: newNodeId,
@@ -239,7 +240,7 @@ export function useCanvasNodes(
                 ...node,
                 data: {
                   ...node.data,
-                  content: '生成失败，请重试',
+                  content: tFromSettings('toast.nodeGenerateFailed'),
                   thinking: '',
                   question: text,
                   updatedAt: nowUpdated,
@@ -352,7 +353,7 @@ export function useCanvasNodes(
     })
 
     onDone()
-    showToast('标签和备注已更新', 'success')
+    showToast(tFromSettings('toast.metaUpdated'), 'success')
   }, [getEdges, refreshNodeRuntimeData, setNodes, showToast])
 
   const handleRestoreVersion = useCallback((versionDialog: VersionDialogState, selectedVersionIndex: number, onDone: () => void) => {
@@ -378,13 +379,13 @@ export function useCanvasNodes(
     })
 
     onDone()
-    showToast('已恢复到历史版本', 'success')
+    showToast(tFromSettings('toast.versionRestored'), 'success')
   }, [getEdges, refreshNodeRuntimeData, setNodes, showToast])
 
   const handleExportNode = useCallback((nodeId: string) => {
     const node = nodes.find((item) => item.id === nodeId)
     if (!node) {
-      showToast('未找到节点', 'error')
+      showToast(tFromSettings('toast.nodeNotFound'), 'error')
       return
     }
 
@@ -399,10 +400,10 @@ export function useCanvasNodes(
 
     let markdown = `<!--\n${metadata}\n-->\n\n${node.data.content || ''}`
     if (thinking) {
-      markdown += `\n\n## 思考过程（Think）\n${thinking}\n`
+      markdown += `\n\n## ${tFromSettings('canvas.detail.thinking')}\n${thinking}\n`
     }
     if (note) {
-      markdown += `\n\n## 备注\n${note}\n`
+      markdown += `\n\n## ${tFromSettings('node.note')}\n${note}\n`
     }
 
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
@@ -412,7 +413,7 @@ export function useCanvasNodes(
     link.click()
     URL.revokeObjectURL(link.href)
 
-    showToast('节点已导出为 Markdown', 'success')
+    showToast(tFromSettings('toast.nodeExported'), 'success')
   }, [nodes, showToast])
 
   return {

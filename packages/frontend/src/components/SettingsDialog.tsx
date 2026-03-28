@@ -1,23 +1,36 @@
 import { useEffect, useState } from 'react'
 import {
-  DEFAULT_ANSWER_ANCHOR_KEYWORDS,
-  DEFAULT_PROMPT_TEMPLATES,
+  DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE,
+  DEFAULT_PROMPT_TEMPLATES_BY_LOCALE,
+  DEFAULT_SYSTEM_PROMPT_BY_LOCALE,
   type ApiStyle,
   type ThemeMode,
   useSettingsStore
 } from '../stores/settingsStore'
+import type { LocaleCode, LocaleMode } from '../i18n/types'
 import { updateLLMConfig } from '../services/api'
 import { useToastStore } from '../stores/toastStore'
 import { Moon, Sun, X } from 'lucide-react'
+import { useI18n } from '../hooks/useI18n'
 
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
 }
 
+function getLocalePromptConfig(llmSettings: ReturnType<typeof useSettingsStore.getState>['llmSettings'], locale: LocaleCode) {
+  return llmSettings.localizedPrompts[locale] || {
+    systemPrompt: DEFAULT_SYSTEM_PROMPT_BY_LOCALE[locale],
+    promptTemplates: DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[locale],
+    answerAnchorKeywords: DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE[locale]
+  }
+}
+
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
-  const { llmSettings, uiSettings, updateLLMSettings, setTheme } = useSettingsStore()
+  const { llmSettings, uiSettings, updateLLMSettings, setTheme, setLocaleMode } = useSettingsStore()
   const { showToast } = useToastStore()
+  const { t } = useI18n()
+
   const [activeTab, setActiveTab] = useState<'llm' | 'prompt' | 'appearance'>('llm')
   const [apiKey, setApiKey] = useState(llmSettings.apiKey)
   const [baseURL, setBaseURL] = useState(llmSettings.baseURL)
@@ -26,6 +39,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [temperature, setTemperature] = useState(String(llmSettings.temperature))
   const [maxTokens, setMaxTokens] = useState(String(llmSettings.maxTokens))
   const [contextMaxDepth, setContextMaxDepth] = useState(String(llmSettings.contextMaxDepth))
+  const [promptLocale, setPromptLocale] = useState<LocaleCode>(llmSettings.promptLocale)
   const [answerAnchorKeywordsText, setAnswerAnchorKeywordsText] = useState(llmSettings.answerAnchorKeywords.join('\n'))
   const [systemPrompt, setSystemPrompt] = useState(llmSettings.systemPrompt)
   const [directExpandPrompt, setDirectExpandPrompt] = useState(llmSettings.promptTemplates.directExpand)
@@ -33,6 +47,17 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [customContextPrompt, setCustomContextPrompt] = useState(llmSettings.promptTemplates.customContextExpand)
   const [contextEnvelopePrompt, setContextEnvelopePrompt] = useState(llmSettings.promptTemplates.contextEnvelope)
   const [themeMode, setThemeMode] = useState<ThemeMode>(uiSettings.theme)
+  const [localeMode, setLocaleModeState] = useState<LocaleMode>(uiSettings.localeMode)
+
+  const syncPromptFieldsByLocale = (locale: LocaleCode) => {
+    const localized = getLocalePromptConfig(llmSettings, locale)
+    setSystemPrompt(localized.systemPrompt)
+    setDirectExpandPrompt(localized.promptTemplates.directExpand)
+    setTargetedPrompt(localized.promptTemplates.targetedQuestion)
+    setCustomContextPrompt(localized.promptTemplates.customContextExpand)
+    setContextEnvelopePrompt(localized.promptTemplates.contextEnvelope)
+    setAnswerAnchorKeywordsText(localized.answerAnchorKeywords.join('\n'))
+  }
 
   useEffect(() => {
     if (!open) return
@@ -44,14 +69,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setTemperature(String(llmSettings.temperature))
     setMaxTokens(String(llmSettings.maxTokens))
     setContextMaxDepth(String(llmSettings.contextMaxDepth))
-    setAnswerAnchorKeywordsText(llmSettings.answerAnchorKeywords.join('\n'))
-    setSystemPrompt(llmSettings.systemPrompt)
-    setDirectExpandPrompt(llmSettings.promptTemplates.directExpand)
-    setTargetedPrompt(llmSettings.promptTemplates.targetedQuestion)
-    setCustomContextPrompt(llmSettings.promptTemplates.customContextExpand)
-    setContextEnvelopePrompt(llmSettings.promptTemplates.contextEnvelope)
+    setPromptLocale(llmSettings.promptLocale)
+    syncPromptFieldsByLocale(llmSettings.promptLocale)
     setThemeMode(uiSettings.theme)
-  }, [llmSettings, open, uiSettings.theme])
+    setLocaleModeState(uiSettings.localeMode)
+  }, [llmSettings, open, uiSettings.theme, uiSettings.localeMode])
 
   if (!open) return null
 
@@ -68,6 +90,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     return integer ? Math.round(normalized) : normalized
   }
 
+  const handlePromptLocaleChange = (nextLocale: LocaleCode) => {
+    setPromptLocale(nextLocale)
+    syncPromptFieldsByLocale(nextLocale)
+  }
+
   const handleSave = async () => {
     const nextTemperature = parseNumber(temperature, llmSettings.temperature, 0, 2)
     const nextMaxTokens = parseNumber(maxTokens, llmSettings.maxTokens, 1, 32000, true)
@@ -78,14 +105,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       .filter(Boolean)
     const resolvedAnswerAnchorKeywords = nextAnswerAnchorKeywords.length > 0
       ? Array.from(new Set(nextAnswerAnchorKeywords))
-      : DEFAULT_ANSWER_ANCHOR_KEYWORDS
-    const nextSystemPrompt = systemPrompt.trim() || llmSettings.systemPrompt
+      : DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE[promptLocale]
+    const nextSystemPrompt = systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT_BY_LOCALE[promptLocale]
 
     const nextPromptTemplates = {
-      directExpand: directExpandPrompt.trim() || DEFAULT_PROMPT_TEMPLATES.directExpand,
-      targetedQuestion: targetedPrompt.trim() || DEFAULT_PROMPT_TEMPLATES.targetedQuestion,
-      customContextExpand: customContextPrompt.trim() || DEFAULT_PROMPT_TEMPLATES.customContextExpand,
-      contextEnvelope: contextEnvelopePrompt.trim() || DEFAULT_PROMPT_TEMPLATES.contextEnvelope
+      directExpand: directExpandPrompt.trim() || DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].directExpand,
+      targetedQuestion: targetedPrompt.trim() || DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].targetedQuestion,
+      customContextExpand: customContextPrompt.trim() || DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].customContextExpand,
+      contextEnvelope: contextEnvelopePrompt.trim() || DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[promptLocale].contextEnvelope
     }
 
     updateLLMSettings({
@@ -93,6 +120,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       baseURL,
       model,
       apiStyle,
+      promptLocale,
       answerAnchorKeywords: resolvedAnswerAnchorKeywords,
       temperature: nextTemperature,
       maxTokens: nextMaxTokens,
@@ -101,6 +129,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       promptTemplates: nextPromptTemplates
     })
     setTheme(themeMode)
+    setLocaleMode(localeMode)
 
     try {
       await updateLLMConfig({
@@ -115,9 +144,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         systemPrompt: nextSystemPrompt,
         promptTemplates: nextPromptTemplates
       })
-      showToast('配置保存成功！', 'success')
+      showToast(t('settings.toast.saved'), 'success')
     } catch (error) {
-      showToast('本地配置已保存，远端同步失败', 'error')
+      showToast(t('settings.toast.localSavedRemoteFailed'), 'error')
     }
     onClose()
   }
@@ -126,7 +155,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="bg-background text-foreground rounded-lg border border-border shadow-lg w-[760px] max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">设置</h2>
+          <h2 className="text-lg font-semibold">{t('settings.title')}</h2>
           <button onClick={onClose} className="p-1 hover:bg-accent rounded">
             <X className="w-5 h-5" />
           </button>
@@ -139,7 +168,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               activeTab === 'llm' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            LLM 配置
+            {t('settings.tab.llm')}
           </button>
           <button
             onClick={() => setActiveTab('prompt')}
@@ -147,7 +176,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               activeTab === 'prompt' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Prompt 配置
+            {t('settings.tab.prompt')}
           </button>
           <button
             onClick={() => setActiveTab('appearance')}
@@ -155,7 +184,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               activeTab === 'appearance' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            外观
+            {t('settings.tab.appearance')}
           </button>
         </div>
 
@@ -163,20 +192,20 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           {activeTab === 'llm' && (
             <>
               <div className="rounded border border-border p-3 space-y-3">
-                <div className="text-sm font-medium">基础配置</div>
+                <div className="text-sm font-medium">{t('settings.section.basic')}</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">API 密钥</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.apiKey')}</label>
                   <input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    placeholder="输入 API Key"
+                    placeholder={t('settings.apiKey.placeholder')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Base URL</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.baseUrl')}</label>
                   <input
                     type="text"
                     value={baseURL}
@@ -187,7 +216,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">模型名称</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.model')}</label>
                   <input
                     type="text"
                     value={model}
@@ -198,26 +227,24 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">API 风格</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.apiStyle')}</label>
                   <select
                     value={apiStyle}
                     onChange={(e) => setApiStyle(e.target.value as ApiStyle)}
                     className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="openai_chat">OpenAI Chat Completions（推荐）</option>
-                    <option value="google_gemini">Google Gemini（实验）</option>
+                    <option value="openai_chat">{t('settings.apiStyle.openai')}</option>
+                    <option value="google_gemini">{t('settings.apiStyle.google')}</option>
                   </select>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    当前 ModelGate 文档显示 Google 风格仍在逐步支持，若返回 405/4xx，请切回 OpenAI 风格。
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('settings.apiStyle.help')}</p>
                 </div>
               </div>
 
               <div className="rounded border border-border p-3 space-y-3">
-                <div className="text-sm font-medium">高级参数</div>
+                <div className="text-sm font-medium">{t('settings.section.advanced')}</div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Temperature</label>
+                    <label className="block text-sm font-medium mb-1">{t('settings.temperature')}</label>
                     <input
                       type="number"
                       min={0}
@@ -229,7 +256,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Max Tokens</label>
+                    <label className="block text-sm font-medium mb-1">{t('settings.maxTokens')}</label>
                     <input
                       type="number"
                       min={1}
@@ -248,9 +275,20 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           {activeTab === 'prompt' && (
             <>
               <div className="rounded border border-border p-3 space-y-2">
-                <div className="text-sm font-medium">项目配置</div>
+                <div className="text-sm font-medium">{t('settings.section.project')}</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">上下文回溯深度</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.promptLocale')}</label>
+                  <select
+                    value={promptLocale}
+                    onChange={(e) => handlePromptLocaleChange(e.target.value as LocaleCode)}
+                    className="w-[220px] px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="zh-CN">{t('settings.promptLocale.zh')}</option>
+                    <option value="en-US">{t('settings.promptLocale.en')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('settings.contextDepth')}</label>
                   <input
                     type="number"
                     min={1}
@@ -261,39 +299,35 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     className="w-[220px] px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  用于自动回溯父节点链的最大层级，属于 OpenMindLearn 的上下文策略，不是 LLM 原生调用参数。
-                </p>
+                <p className="text-xs text-muted-foreground">{t('settings.contextDepth.help')}</p>
                 <div className="pt-1">
-                  <label className="block text-sm font-medium mb-1">正文锚点关键词（每行一个）</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.answerAnchors')}</label>
                   <textarea
                     value={answerAnchorKeywordsText}
                     onChange={(e) => setAnswerAnchorKeywordsText(e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y font-mono text-xs"
-                    placeholder="结论"
+                    placeholder={promptLocale === 'zh-CN' ? '结论' : 'Conclusion'}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    只要某一行包含关键词，就视为正文起点（不要求关键词在行首）。例如：包含“结论”的行。
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('settings.answerAnchors.help')}</p>
                 </div>
               </div>
 
               <div className="rounded border border-border p-3 space-y-3">
-                <div className="text-sm font-medium">Prompt 自定义</div>
+                <div className="text-sm font-medium">{t('settings.section.promptCustom')}</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">System Prompt</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.systemPrompt')}</label>
                   <textarea
                     value={systemPrompt}
                     onChange={(e) => setSystemPrompt(e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
-                    placeholder="系统提示词"
+                    placeholder={t('settings.systemPrompt.placeholder')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">直接展开模板（变量：{`{{text}}`}）</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.template.direct')}</label>
                   <textarea
                     value={directExpandPrompt}
                     onChange={(e) => setDirectExpandPrompt(e.target.value)}
@@ -303,7 +337,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">针对性提问模板（变量：{`{{text}}`}）</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.template.targeted')}</label>
                   <textarea
                     value={targetedPrompt}
                     onChange={(e) => setTargetedPrompt(e.target.value)}
@@ -313,7 +347,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">自定义上下文展开模板（变量：{`{{text}}`}）</label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.template.customContext')}</label>
                   <textarea
                     value={customContextPrompt}
                     onChange={(e) => setCustomContextPrompt(e.target.value)}
@@ -323,9 +357,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">
-                    上下文包装模板（变量：{`{{contextXml}}`}、{`{{prompt}}`}）
-                  </label>
+                  <label className="block text-sm font-medium mb-1">{t('settings.template.contextEnvelope')}</label>
                   <textarea
                     value={contextEnvelopePrompt}
                     onChange={(e) => setContextEnvelopePrompt(e.target.value)}
@@ -338,50 +370,68 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           )}
 
           {activeTab === 'appearance' && (
-            <div className="rounded border border-border p-3 space-y-3">
-              <div className="text-sm font-medium">主题色</div>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setThemeMode('light')}
-                  className={`px-3 py-3 rounded border text-sm text-left transition-colors ${
-                    themeMode === 'light'
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border hover:bg-accent text-muted-foreground'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Sun className="w-4 h-4" />
-                    浅色模式
-                  </div>
-                </button>
-                <button
-                  onClick={() => setThemeMode('dark')}
-                  className={`px-3 py-3 rounded border text-sm text-left transition-colors ${
-                    themeMode === 'dark'
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border hover:bg-accent text-muted-foreground'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Moon className="w-4 h-4" />
-                    黑暗模式
-                  </div>
-                </button>
+            <div className="rounded border border-border p-3 space-y-4">
+              <div>
+                <div className="text-sm font-medium mb-2">{t('settings.section.theme')}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setThemeMode('light')}
+                    className={`px-3 py-3 rounded border text-sm text-left transition-colors ${
+                      themeMode === 'light'
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-border hover:bg-accent text-muted-foreground'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sun className="w-4 h-4" />
+                      {t('settings.theme.light')}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setThemeMode('dark')}
+                    className={`px-3 py-3 rounded border text-sm text-left transition-colors ${
+                      themeMode === 'dark'
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-border hover:bg-accent text-muted-foreground'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Moon className="w-4 h-4" />
+                      {t('settings.theme.dark')}
+                    </div>
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">{t('settings.theme.help')}</p>
               </div>
-              <p className="text-xs text-muted-foreground">主题设置保存在本地，切换后下次打开会自动恢复。</p>
+
+              <div>
+                <div className="text-sm font-medium mb-2">{t('settings.section.language')}</div>
+                <label className="block text-sm font-medium mb-1">{t('settings.language.mode')}</label>
+                <select
+                  value={localeMode}
+                  onChange={(e) => setLocaleModeState(e.target.value as LocaleMode)}
+                  className="w-[220px] px-3 py-2 border border-border rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="auto">{t('settings.language.mode.auto')}</option>
+                  <option value="zh-CN">{t('settings.language.mode.zh')}</option>
+                  <option value="en-US">{t('settings.language.mode.en')}</option>
+                </select>
+                <p className="mt-2 text-xs text-muted-foreground">{t('settings.language.help')}</p>
+              </div>
             </div>
           )}
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
           <button onClick={onClose} className="px-4 py-2 border border-border rounded hover:bg-accent">
-            取消
+            {t('common.cancel')}
           </button>
           <button onClick={handleSave} className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90">
-            保存
+            {t('common.save')}
           </button>
         </div>
       </div>
     </div>
   )
 }
+

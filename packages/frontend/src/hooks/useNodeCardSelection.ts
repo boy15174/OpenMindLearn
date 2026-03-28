@@ -4,6 +4,7 @@ import type { SelectionMenuState } from '../types/nodeCard'
 import type { ExpandMode } from '../stores/settingsStore'
 import { fingerprintBase64 } from '../utils/textMeta'
 import { getSelectionOffsets, getContainerPlainText } from '../utils/sourceHighlight'
+import { tFromSettings } from './useI18n'
 
 export function useNodeCardSelection() {
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null)
@@ -84,7 +85,7 @@ export function useNodeCardSelection() {
   const handleContextExpand = useCallback((allNodes: any[] | undefined, showToast: (msg: string, type: 'error' | 'success') => void) => {
     if (!selectionMenu) return
     if (!allNodes || allNodes.length === 0) {
-      showToast('无法获取节点上下文，请重试', 'error')
+      showToast(tFromSettings('toast.contextUnavailable'), 'error')
       return
     }
     setShowContextPanel(true)

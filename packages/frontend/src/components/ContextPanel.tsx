@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Check } from 'lucide-react'
 import { Node } from '../types'
+import { useI18n } from '../hooks/useI18n'
 
 interface ContextPanelProps {
   currentNodeId: string
@@ -12,6 +13,7 @@ interface ContextPanelProps {
 export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: ContextPanelProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [upstreamNodes, setUpstreamNodes] = useState<Node[]>([])
+  const { t } = useI18n()
 
   useEffect(() => {
     const nodeMap = new Map(allNodes.map(n => [n.id, n]))
@@ -82,7 +84,7 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
       <div className="bg-background text-foreground rounded-lg border border-border shadow-xl w-[600px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">选择上下文节点</h2>
+          <h2 className="text-lg font-semibold">{t('context.title')}</h2>
           <button
             onClick={onClose}
             className="p-1 hover:bg-accent rounded"
@@ -94,7 +96,7 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
         {/* 节点列表 */}
         <div className="flex-1 overflow-y-auto p-4">
           {upstreamNodes.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">没有可用上游节点</p>
+            <p className="text-muted-foreground text-center py-8">{t('context.none')}</p>
           ) : (
             <div className="space-y-2">
               {upstreamNodes.map((node, index) => {
@@ -117,9 +119,9 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs text-muted-foreground">节点 {index + 1}</span>
+                          <span className="text-xs text-muted-foreground">{t('context.nodeLabel', { index: index + 1 })}</span>
                           {node.id === currentNodeId && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary">当前</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary">{t('common.current')}</span>
                           )}
                           <span className="text-xs text-muted-foreground/80">{node.id.slice(0, 8)}</span>
                         </div>
@@ -136,14 +138,14 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
         {/* 底部按钮 */}
         <div className="flex items-center justify-between p-4 border-t bg-muted/35">
           <p className="text-sm text-muted-foreground">
-            已选择 {selectedIds.size} / {upstreamNodes.length} 个节点
+            {t('context.selected', { selected: selectedIds.size, total: upstreamNodes.length })}
           </p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
               className="px-4 py-2 text-foreground hover:bg-accent rounded"
             >
-              取消
+              {t('common.cancel')}
             </button>
             <button
               onClick={(e) => {
@@ -154,7 +156,7 @@ export function ContextPanel({ currentNodeId, allNodes, onConfirm, onClose }: Co
               disabled={selectedIds.size === 0}
               className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              确认
+              {t('context.confirm')}
             </button>
           </div>
         </div>

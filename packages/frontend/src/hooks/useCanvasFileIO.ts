@@ -11,6 +11,7 @@ import {
 import { parseNodeDimension, getNodeWidth, getNodeHeight, normalizeNodeForRuntime } from '../utils/nodeDimension'
 import { normalizeRegionsWithNodeFallback } from '../utils/region'
 import { fileToBase64, base64ToBlob } from '../utils/base64'
+import { tFromSettings } from './useI18n'
 
 export interface FileIODeps {
   nodes: any[]
@@ -74,11 +75,11 @@ export function useCanvasFileIO(deps: FileIODeps) {
       URL.revokeObjectURL(blobUrl)
 
       setDirty(false)
-      showToast('文件保存成功！', 'success')
+      showToast(tFromSettings('toast.fileSaved'), 'success')
     } catch (error) {
       console.error('保存失败:', error)
-      const message = error instanceof Error ? error.message : '保存失败，请重试'
-      showToast(`保存失败：${message}`, 'error')
+      const message = error instanceof Error ? error.message : ''
+      showToast(tFromSettings('toast.fileSaveFailed', { message }), 'error')
     }
   }, [deps.nodes, deps.edges, deps.regions, fileName, setDirty, showToast])
 
@@ -154,11 +155,11 @@ export function useCanvasFileIO(deps: FileIODeps) {
         deps.resetSearch()
         deps.setDetailPanel(null)
         setDirty(false)
-        showToast('文件加载成功！', 'success')
+        showToast(tFromSettings('toast.fileLoaded'), 'success')
       } catch (error) {
         console.error('加载失败:', error)
-        const message = error instanceof Error ? error.message : '加载失败，请检查文件格式'
-        showToast(`加载失败：${message}`, 'error')
+        const message = error instanceof Error ? error.message : ''
+        showToast(tFromSettings('toast.fileLoadFailed', { message }), 'error')
       }
     }
 
@@ -167,7 +168,7 @@ export function useCanvasFileIO(deps: FileIODeps) {
 
   const handleNew = useCallback(() => {
     if (deps.nodes.length > 0 || deps.edges.length > 0 || deps.regions.length > 0) {
-      if (!confirm('当前文件未保存，确定要新建吗？')) return
+      if (!confirm(tFromSettings('confirm.newUnsaved'))) return
     }
 
     deps.skipDirtyFlagRef.current = true

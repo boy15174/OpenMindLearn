@@ -15,11 +15,13 @@ import { fingerprintBase64 } from '../utils/textMeta'
 import { readFilesAsNodeImages, readClipboardImages } from '../utils/image'
 import { getContainerPlainText, clearSourceHighlightMarks, applySourceHighlightByRanges } from '../utils/sourceHighlight'
 import { useNodeCardSelection } from '../hooks/useNodeCardSelection'
+import { useI18n } from '../hooks/useI18n'
 
 export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   const isReadOnly = data.mode === 'view'
   const images = data.images || []
   const hasImages = images.length > 0
+  const { t } = useI18n()
   const [isEditing, setIsEditing] = useState(data.isEditing || false)
   const [content, setContent] = useState(data.content)
   const [loading, setLoading] = useState(false)
@@ -151,7 +153,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             ))}
             {(data.note || '').trim() && (
               <span className="px-1.5 py-0.5 text-[11px] rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/45 dark:text-amber-200 dark:border-amber-800">
-                备注
+                {t('node.note')}
               </span>
             )}
           </div>
@@ -167,7 +169,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
               'resize-none outline-none focus:border-primary/40',
               'placeholder:text-muted-foreground/50 nowheel nodrag'
             )}
-            placeholder="输入内容或问题..."
+            placeholder={t('node.placeholder')}
           />
         ) : (
           <div className="space-y-1 flex-1 min-h-0 flex flex-col">
@@ -176,7 +178,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
                 className="text-[10px] rounded border border-border/60 bg-muted/35 p-1.5 shrink-0 nowheel nodrag"
                 onWheelCapture={(event) => event.stopPropagation()}
               >
-                <summary className="cursor-pointer select-none text-[10px] text-muted-foreground">思考过程（可展开）</summary>
+                <summary className="cursor-pointer select-none text-[10px] text-muted-foreground">{t('node.thinkingSummary')}</summary>
                 <div
                   className="mt-1 max-h-36 overflow-y-auto nowheel nodrag text-muted-foreground"
                   onWheelCapture={(event) => event.stopPropagation()}
@@ -197,7 +199,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
                 prose-h1:text-[16px] prose-h2:text-[15px] prose-h3:text-[14px] prose-h4:text-[13px]
                 prose-code:text-[12px] prose-pre:text-[12px]"
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || '_空节点_'}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t('node.empty')}</ReactMarkdown>
             </div>
             {(data.note || '').trim() && (
               <div className="text-xs text-muted-foreground bg-muted/50 rounded p-1.5 border border-border/60 line-clamp-3 shrink-0">
@@ -216,11 +218,11 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
                     type="button"
                     className="h-10 w-14 overflow-hidden rounded-sm border border-border/65 bg-background transition-colors hover:border-primary/45"
                     onClick={() => setPreviewImage(`data:${img.mimeType};base64,${img.base64}`)}
-                    title={img.name || '附件图片'}
+                    title={img.name || t('node.imageAttachment')}
                   >
                     <img
                       src={`data:${img.mimeType};base64,${img.base64}`}
-                      alt={img.name || '附件图片'}
+                      alt={img.name || t('node.imageAttachment')}
                       className="h-full w-full object-cover"
                     />
                   </button>
@@ -231,7 +233,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
                         data.onImagesChange?.(next)
                       }}
                       className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                      title="移除图片"
+                      title={t('node.removeImage')}
                     >
                       <X className="w-2.5 h-2.5" />
                     </button>
@@ -247,10 +249,10 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
         <div className="flex items-center justify-end gap-1.5 px-2 py-1.5 bg-secondary/20 border-t">
           <label
             className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded border border-border/70 cursor-pointer text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            title="添加图片"
+            title={t('node.addImage')}
           >
             <ImagePlus className="w-3 h-3" />
-            <span>图片{images.length > 0 ? `(${images.length})` : ''}</span>
+            <span>{t('node.imageButton', { count: images.length > 0 ? `(${images.length})` : '' })}</span>
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={handleFileUpload} />
           </label>
           <button
@@ -261,7 +263,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
               'text-muted-foreground hover:text-foreground hover:bg-secondary',
               'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
             )}
-            title="保存内容"
+            title={t('node.saveContent')}
           >
             <Save className="w-3 h-3" />
           </button>
@@ -279,7 +281,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             ) : (
               <Sparkles className="w-3 h-3" />
             )}
-            {loading ? '...' : '生成'}
+            {loading ? '...' : t('node.generate')}
           </button>
         </div>
       )}
@@ -303,19 +305,19 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             onClick={() => selection.handleDirectExpand(data.onExpand)}
             className="px-3 py-1.5 text-xs font-medium rounded hover:bg-accent transition-colors whitespace-nowrap"
           >
-            直接展开
+            {t('node.selection.direct')}
           </button>
           <button
             onClick={() => selection.handleCustomPrompt()}
             className="px-3 py-1.5 text-xs font-medium rounded hover:bg-accent transition-colors whitespace-nowrap"
           >
-            针对性提问
+            {t('node.selection.targeted')}
           </button>
           <button
             onClick={() => selection.handleContextExpand(data.allNodes, showToast)}
             className="px-3 py-1.5 text-xs font-medium rounded hover:bg-accent transition-colors whitespace-nowrap"
           >
-            自定义上下文展开
+            {t('node.selection.context')}
           </button>
         </div>,
         document.body
@@ -336,7 +338,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             onChange={(e) => selection.setCustomPrompt(e.target.value)}
             rows={3}
             className="w-full p-2 text-sm rounded border border-border/60 bg-background resize-none outline-none focus:border-primary/40 mb-2"
-            placeholder="修改或输入新的问题..."
+            placeholder={t('node.selection.placeholder')}
             autoFocus
           />
           <div className="flex justify-end gap-2">
@@ -344,7 +346,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
               onClick={() => selection.clearSelection()}
               className="px-3 py-1 text-xs font-medium rounded hover:bg-accent transition-colors"
             >
-              取消
+              {t('common.cancel')}
             </button>
             <button
               onClick={() => selection.handleSubmitCustomPrompt(data.onExpand)}
@@ -355,7 +357,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
                 'disabled:opacity-40 disabled:cursor-not-allowed'
               )}
             >
-              确认展开
+              {t('node.selection.confirmExpand')}
             </button>
           </div>
         </div>,

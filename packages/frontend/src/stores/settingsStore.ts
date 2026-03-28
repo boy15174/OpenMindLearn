@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { getBrowserLanguage, resolveLocaleMode } from '../i18n'
+import type { LocaleCode, LocaleMode } from '../i18n/types'
 
 export type ExpandMode = 'direct' | 'targeted' | 'custom_context'
 export type ThemeMode = 'light' | 'dark'
@@ -12,30 +14,15 @@ export interface PromptTemplates {
   contextEnvelope: string
 }
 
-interface LLMSettings {
-  apiKey: string
-  baseURL: string
-  model: string
-  apiStyle: ApiStyle
-  answerAnchorKeywords: string[]
-  temperature: number
-  maxTokens: number
-  contextMaxDepth: number
+export interface LocalizedPromptConfig {
   systemPrompt: string
   promptTemplates: PromptTemplates
+  answerAnchorKeywords: string[]
 }
 
-interface UISettings {
-  theme: ThemeMode
-}
-
-interface SettingsStore {
-  llmSettings: LLMSettings
-  uiSettings: UISettings
-  updateLLMSettings: (settings: Partial<LLMSettings>) => void
-  updateUISettings: (settings: Partial<UISettings>) => void
-  setTheme: (theme: ThemeMode) => void
-}
+export const DEFAULT_ANSWER_ANCHOR_KEYWORDS_ZH = ['结论']
+export const DEFAULT_ANSWER_ANCHOR_KEYWORDS_EN = ['Conclusion', 'Final Answer']
+export const DEFAULT_ANSWER_ANCHOR_KEYWORDS = DEFAULT_ANSWER_ANCHOR_KEYWORDS_ZH
 
 const LEGACY_SYSTEM_PROMPT = '只输出最终答案，不要输出任何思考过程、推理步骤、分析过程或 think 标签。'
 const PREVIOUS_SYSTEM_PROMPT = `你是 OpenMindLearn 的学习教练型助手，目标是帮助用户“理解 -> 记住 -> 会用”。
@@ -90,7 +77,7 @@ const PREVIOUS_CONTEXT_ENVELOPE = `你正在为 OpenMindLearn 生成学习节点
 4. 输出应可直接保存为学习卡片（Markdown）。
 5. 不要复述 XML 标签，不要输出思考过程。`
 
-const DEFAULT_SYSTEM_PROMPT = `你是 OpenMindLearn 的学习教练型助手，目标是帮助用户“理解 -> 记住 -> 会用”。
+const DEFAULT_SYSTEM_PROMPT_ZH = `你是 OpenMindLearn 的学习教练型助手，目标是帮助用户“理解 -> 记住 -> 会用”。
 
 回答原则：
 1. 你可以进行充分推理；若输出思考过程，请与最终答案清晰分段，避免混在同一段正文里。
@@ -100,9 +87,17 @@ const DEFAULT_SYSTEM_PROMPT = `你是 OpenMindLearn 的学习教练型助手，�
 5. 对不确定信息明确标注“可能/待确认”，不要编造。
 6. 输出使用 Markdown，信息密度优先。`
 
-export const DEFAULT_ANSWER_ANCHOR_KEYWORDS = ['结论']
+const DEFAULT_SYSTEM_PROMPT_EN = `You are OpenMindLearn's learning coach. Your goal is to help the learner "understand -> retain -> apply".
 
-export const DEFAULT_PROMPT_TEMPLATES: PromptTemplates = {
+Answer principles:
+1. You may reason deeply; if thinking is shown, keep it clearly separated from final answer text.
+2. Prefer the user's language. If unspecified, use English.
+3. Give the conclusion first, then structured explanation.
+4. Extend appropriately without drifting off-topic.
+5. Mark uncertainty explicitly instead of fabricating facts.
+6. Output in Markdown with high information density.`
+
+const DEFAULT_PROMPT_TEMPLATES_ZH: PromptTemplates = {
   directExpand: `请把下面内容扩展成一张高质量学习卡片，目标是让学习者快速理解并能应用。
 
 原始内容：
@@ -159,6 +154,156 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplates = {
 5. 不要复述 XML 标签。`
 }
 
+const DEFAULT_PROMPT_TEMPLATES_EN: PromptTemplates = {
+  directExpand: `Expand the text below into a high-quality study card for quick understanding and practical use.
+
+Source text:
+{{text}}
+
+Suggested structure (adjust as needed):
+## One-line Conclusion
+## Core Concepts and Mechanism
+## Practical Example
+## Common Pitfalls / Boundaries
+## One Self-check Question (no answer)
+
+Requirements:
+- Stay strongly aligned with source text
+- If ambiguity exists, state your assumptions first`,
+  targetedQuestion: `Provide a high-quality learning-focused answer to the user's question.
+
+User question/instruction:
+{{text}}
+
+Output requirements:
+1. Answer directly with a clear conclusion first.
+2. Explain key rationale and principles.
+3. Provide one minimal practical example or counterexample.
+4. Provide one follow-up question for deeper learning.
+5. If information is insufficient, state missing parts and answer under current assumptions.`,
+  customContextExpand: `Deepen the selected text while staying context-consistent. Do not drift off-topic.
+
+Selected text:
+{{text}}
+
+Suggested output:
+## Role in the original topic
+## Point-by-point breakdown (terms / concepts / relationships)
+## Links to upstream knowledge
+## Example or analogy
+## Two next exploration directions
+
+Requirements:
+- Stay close to selected text before extending
+- Do not switch to unrelated topics`,
+  contextEnvelope: `You are generating a study node for OpenMindLearn. Below is the upstream-to-parent context chain (XML):
+
+{{contextXml}}
+
+Current task:
+{{prompt}}
+
+Please follow:
+1. Treat the last node as the current focus.
+2. Use upstream nodes as background and terminology support.
+3. If conflict exists, prefer more specific information closer to focus and state assumptions briefly.
+4. Output should be directly usable as a Markdown learning card.
+5. Do not repeat XML tags.`
+}
+
+export const DEFAULT_SYSTEM_PROMPT_BY_LOCALE: Record<LocaleCode, string> = {
+  'zh-CN': DEFAULT_SYSTEM_PROMPT_ZH,
+  'en-US': DEFAULT_SYSTEM_PROMPT_EN
+}
+
+export const DEFAULT_PROMPT_TEMPLATES_BY_LOCALE: Record<LocaleCode, PromptTemplates> = {
+  'zh-CN': DEFAULT_PROMPT_TEMPLATES_ZH,
+  'en-US': DEFAULT_PROMPT_TEMPLATES_EN
+}
+
+export const DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE: Record<LocaleCode, string[]> = {
+  'zh-CN': DEFAULT_ANSWER_ANCHOR_KEYWORDS_ZH,
+  'en-US': DEFAULT_ANSWER_ANCHOR_KEYWORDS_EN
+}
+
+export interface LLMSettings {
+  apiKey: string
+  baseURL: string
+  model: string
+  apiStyle: ApiStyle
+  promptLocale: LocaleCode
+  localizedPrompts: Record<LocaleCode, LocalizedPromptConfig>
+  answerAnchorKeywords: string[]
+  temperature: number
+  maxTokens: number
+  contextMaxDepth: number
+  systemPrompt: string
+  promptTemplates: PromptTemplates
+}
+
+interface UISettings {
+  theme: ThemeMode
+  localeMode: LocaleMode
+  localeResolved: LocaleCode
+}
+
+interface SettingsStore {
+  llmSettings: LLMSettings
+  uiSettings: UISettings
+  updateLLMSettings: (settings: Partial<LLMSettings>) => void
+  updateUISettings: (settings: Partial<UISettings>) => void
+  setTheme: (theme: ThemeMode) => void
+  setLocaleMode: (mode: LocaleMode) => void
+  syncLocaleFromNavigator: () => void
+}
+
+function resolvePromptLocale(value: unknown): LocaleCode {
+  return value === 'en-US' ? 'en-US' : 'zh-CN'
+}
+
+function clonePromptTemplates(templates: PromptTemplates): PromptTemplates {
+  return {
+    directExpand: templates.directExpand,
+    targetedQuestion: templates.targetedQuestion,
+    customContextExpand: templates.customContextExpand,
+    contextEnvelope: templates.contextEnvelope
+  }
+}
+
+function normalizeAnswerAnchorKeywords(input: unknown, fallback: string[]): string[] {
+  const raw: string[] = []
+  if (Array.isArray(input)) {
+    input.forEach((item) => {
+      if (typeof item === 'string') raw.push(item)
+    })
+  } else if (typeof input === 'string') {
+    raw.push(...input.split(/[\r\n,，]+/))
+  }
+
+  const normalized = Array.from(new Set(raw.map((item) => item.trim()).filter(Boolean)))
+  return normalized.length > 0 ? normalized : [...fallback]
+}
+
+function getDefaultPromptConfig(locale: LocaleCode): LocalizedPromptConfig {
+  return {
+    systemPrompt: DEFAULT_SYSTEM_PROMPT_BY_LOCALE[locale],
+    promptTemplates: clonePromptTemplates(DEFAULT_PROMPT_TEMPLATES_BY_LOCALE[locale]),
+    answerAnchorKeywords: [...DEFAULT_ANSWER_ANCHOR_KEYWORDS_BY_LOCALE[locale]]
+  }
+}
+
+function normalizeLocalizedPrompt(locale: LocaleCode, source?: Partial<LocalizedPromptConfig>): LocalizedPromptConfig {
+  const fallback = getDefaultPromptConfig(locale)
+  return {
+    systemPrompt: (source?.systemPrompt || '').trim() || fallback.systemPrompt,
+    promptTemplates: {
+      ...fallback.promptTemplates,
+      ...(source?.promptTemplates || {})
+    },
+    answerAnchorKeywords: normalizeAnswerAnchorKeywords(source?.answerAnchorKeywords, fallback.answerAnchorKeywords)
+  }
+}
+
 function isLegacyValue(value: string | undefined, legacyValues: string[]): boolean {
   if (!value) return true
   return legacyValues.includes(value)
@@ -172,40 +317,80 @@ function upgradeLegacyPromptDefaults(settings?: Partial<LLMSettings>): Partial<L
   const nextTemplates: Partial<PromptTemplates> = { ...promptTemplates }
 
   if (isLegacyValue(settings.systemPrompt, [LEGACY_SYSTEM_PROMPT, PREVIOUS_SYSTEM_PROMPT, PREVIOUS_THINK_TAG_SYSTEM_PROMPT])) {
-    upgraded.systemPrompt = DEFAULT_SYSTEM_PROMPT
+    upgraded.systemPrompt = DEFAULT_SYSTEM_PROMPT_ZH
   }
   if (!promptTemplates.directExpand || promptTemplates.directExpand === LEGACY_PROMPT_TEMPLATES.directExpand) {
-    nextTemplates.directExpand = DEFAULT_PROMPT_TEMPLATES.directExpand
+    nextTemplates.directExpand = DEFAULT_PROMPT_TEMPLATES_ZH.directExpand
   }
   if (!promptTemplates.targetedQuestion || promptTemplates.targetedQuestion === LEGACY_PROMPT_TEMPLATES.targetedQuestion) {
-    nextTemplates.targetedQuestion = DEFAULT_PROMPT_TEMPLATES.targetedQuestion
+    nextTemplates.targetedQuestion = DEFAULT_PROMPT_TEMPLATES_ZH.targetedQuestion
   }
   if (!promptTemplates.customContextExpand || promptTemplates.customContextExpand === LEGACY_PROMPT_TEMPLATES.customContextExpand) {
-    nextTemplates.customContextExpand = DEFAULT_PROMPT_TEMPLATES.customContextExpand
+    nextTemplates.customContextExpand = DEFAULT_PROMPT_TEMPLATES_ZH.customContextExpand
   }
   if (isLegacyValue(promptTemplates.contextEnvelope, [LEGACY_PROMPT_TEMPLATES.contextEnvelope, PREVIOUS_CONTEXT_ENVELOPE])) {
-    nextTemplates.contextEnvelope = DEFAULT_PROMPT_TEMPLATES.contextEnvelope
+    nextTemplates.contextEnvelope = DEFAULT_PROMPT_TEMPLATES_ZH.contextEnvelope
   }
 
   upgraded.promptTemplates = nextTemplates as PromptTemplates
   return upgraded
 }
 
-const DEFAULT_LLM_SETTINGS: LLMSettings = {
-  apiKey: '',
-  baseURL: 'https://mg.aid.pub/v1',
-  model: 'Gemini-3.1-Pro',
-  apiStyle: 'openai_chat',
-  answerAnchorKeywords: DEFAULT_ANSWER_ANCHOR_KEYWORDS,
-  temperature: 0.7,
-  maxTokens: 4096,
-  contextMaxDepth: 10,
-  systemPrompt: DEFAULT_SYSTEM_PROMPT,
-  promptTemplates: DEFAULT_PROMPT_TEMPLATES
+function normalizeLLMSettings(settings?: Partial<LLMSettings>): LLMSettings {
+  const upgraded = upgradeLegacyPromptDefaults(settings)
+  const promptLocale = resolvePromptLocale(upgraded.promptLocale)
+  const localizedPromptsRaw = (upgraded.localizedPrompts || {}) as Partial<Record<LocaleCode, Partial<LocalizedPromptConfig>>>
+
+  const localizedPrompts: Record<LocaleCode, LocalizedPromptConfig> = {
+    'zh-CN': normalizeLocalizedPrompt('zh-CN', localizedPromptsRaw['zh-CN']),
+    'en-US': normalizeLocalizedPrompt('en-US', localizedPromptsRaw['en-US'])
+  }
+
+  if (!upgraded.localizedPrompts) {
+    localizedPrompts[promptLocale] = normalizeLocalizedPrompt(promptLocale, {
+      ...localizedPrompts[promptLocale],
+      systemPrompt: upgraded.systemPrompt || localizedPrompts[promptLocale].systemPrompt,
+      promptTemplates: {
+        ...localizedPrompts[promptLocale].promptTemplates,
+        ...(upgraded.promptTemplates || {})
+      },
+      answerAnchorKeywords: upgraded.answerAnchorKeywords || localizedPrompts[promptLocale].answerAnchorKeywords
+    })
+  }
+
+  const activePromptConfig = localizedPrompts[promptLocale]
+
+  return {
+    apiKey: upgraded.apiKey || '',
+    baseURL: upgraded.baseURL || 'https://mg.aid.pub/v1',
+    model: upgraded.model || 'Gemini-3.1-Pro',
+    apiStyle: upgraded.apiStyle || 'openai_chat',
+    promptLocale,
+    localizedPrompts,
+    answerAnchorKeywords: [...activePromptConfig.answerAnchorKeywords],
+    temperature: typeof upgraded.temperature === 'number' ? upgraded.temperature : 0.7,
+    maxTokens: typeof upgraded.maxTokens === 'number' ? upgraded.maxTokens : 4096,
+    contextMaxDepth: typeof upgraded.contextMaxDepth === 'number' ? upgraded.contextMaxDepth : 10,
+    systemPrompt: activePromptConfig.systemPrompt,
+    promptTemplates: clonePromptTemplates(activePromptConfig.promptTemplates)
+  }
 }
 
+const DEFAULT_LLM_SETTINGS: LLMSettings = normalizeLLMSettings()
+
 const DEFAULT_UI_SETTINGS: UISettings = {
-  theme: 'light'
+  theme: 'light',
+  localeMode: 'auto',
+  localeResolved: resolveLocaleMode('auto', getBrowserLanguage())
+}
+
+function normalizeUISettings(settings?: Partial<UISettings>): UISettings {
+  const mode = settings?.localeMode || 'auto'
+  return {
+    theme: settings?.theme || 'light',
+    localeMode: mode,
+    localeResolved: resolveLocaleMode(mode, getBrowserLanguage())
+  }
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -213,52 +398,110 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       llmSettings: DEFAULT_LLM_SETTINGS,
       uiSettings: DEFAULT_UI_SETTINGS,
-      updateLLMSettings: (settings) => set((state) => ({
-        llmSettings: {
-          ...state.llmSettings,
-          ...settings,
-          promptTemplates: {
-            ...state.llmSettings.promptTemplates,
-            ...(settings.promptTemplates || {})
+      updateLLMSettings: (settings) => set((state) => {
+        const mergedLocalizedPrompts: Record<LocaleCode, LocalizedPromptConfig> = {
+          'zh-CN': normalizeLocalizedPrompt('zh-CN', {
+            ...state.llmSettings.localizedPrompts['zh-CN'],
+            ...(settings.localizedPrompts?.['zh-CN'] || {})
+          }),
+          'en-US': normalizeLocalizedPrompt('en-US', {
+            ...state.llmSettings.localizedPrompts['en-US'],
+            ...(settings.localizedPrompts?.['en-US'] || {})
+          })
+        }
+
+        const nextPromptLocale = resolvePromptLocale(settings.promptLocale ?? state.llmSettings.promptLocale)
+        const shouldUpdateActivePrompt = (
+          settings.systemPrompt !== undefined ||
+          settings.promptTemplates !== undefined ||
+          settings.answerAnchorKeywords !== undefined
+        )
+
+        if (shouldUpdateActivePrompt) {
+          const currentActive = mergedLocalizedPrompts[nextPromptLocale]
+          mergedLocalizedPrompts[nextPromptLocale] = normalizeLocalizedPrompt(nextPromptLocale, {
+            ...currentActive,
+            systemPrompt: settings.systemPrompt ?? currentActive.systemPrompt,
+            promptTemplates: {
+              ...currentActive.promptTemplates,
+              ...(settings.promptTemplates || {})
+            },
+            answerAnchorKeywords: settings.answerAnchorKeywords ?? currentActive.answerAnchorKeywords
+          })
+        }
+
+        const activePromptConfig = mergedLocalizedPrompts[nextPromptLocale]
+
+        return {
+          llmSettings: {
+            ...state.llmSettings,
+            ...settings,
+            promptLocale: nextPromptLocale,
+            localizedPrompts: mergedLocalizedPrompts,
+            systemPrompt: activePromptConfig.systemPrompt,
+            promptTemplates: clonePromptTemplates(activePromptConfig.promptTemplates),
+            answerAnchorKeywords: [...activePromptConfig.answerAnchorKeywords]
           }
         }
-      })),
-      updateUISettings: (settings) => set((state) => ({
-        uiSettings: {
-          ...state.uiSettings,
-          ...settings
+      }),
+      updateUISettings: (settings) => set((state) => {
+        const nextTheme = settings.theme ?? state.uiSettings.theme
+        const nextLocaleMode = settings.localeMode ?? state.uiSettings.localeMode
+        const nextLocaleResolved = settings.localeMode
+          ? resolveLocaleMode(settings.localeMode, getBrowserLanguage())
+          : settings.localeResolved ?? state.uiSettings.localeResolved
+
+        return {
+          uiSettings: {
+            theme: nextTheme,
+            localeMode: nextLocaleMode,
+            localeResolved: nextLocaleResolved
+          }
         }
-      })),
+      }),
       setTheme: (theme) => set((state) => ({
         uiSettings: {
           ...state.uiSettings,
           theme
         }
-      }))
+      })),
+      setLocaleMode: (mode) => set((state) => ({
+        uiSettings: {
+          ...state.uiSettings,
+          localeMode: mode,
+          localeResolved: resolveLocaleMode(mode, getBrowserLanguage())
+        }
+      })),
+      syncLocaleFromNavigator: () => set((state) => {
+        if (state.uiSettings.localeMode !== 'auto') return {}
+        const resolved = resolveLocaleMode('auto', getBrowserLanguage())
+        if (resolved === state.uiSettings.localeResolved) return {}
+        return {
+          uiSettings: {
+            ...state.uiSettings,
+            localeResolved: resolved
+          }
+        }
+      })
     }),
     {
       name: 'oml-settings',
       merge: (persisted, current) => {
         const persistedState = (persisted || {}) as Partial<SettingsStore>
-        const upgradedPersistedLLM = upgradeLegacyPromptDefaults(persistedState.llmSettings)
+        const mergedLLM = normalizeLLMSettings({
+          ...current.llmSettings,
+          ...(persistedState.llmSettings || {})
+        })
+        const mergedUI = normalizeUISettings({
+          ...current.uiSettings,
+          ...(persistedState.uiSettings || {})
+        })
+
         return {
           ...current,
           ...persistedState,
-          llmSettings: {
-            ...DEFAULT_LLM_SETTINGS,
-            ...current.llmSettings,
-            ...upgradedPersistedLLM,
-            promptTemplates: {
-              ...DEFAULT_PROMPT_TEMPLATES,
-              ...current.llmSettings.promptTemplates,
-              ...(upgradedPersistedLLM.promptTemplates || {})
-            }
-          },
-          uiSettings: {
-            ...DEFAULT_UI_SETTINGS,
-            ...current.uiSettings,
-            ...(persistedState.uiSettings || {})
-          }
+          llmSettings: mergedLLM,
+          uiSettings: mergedUI
         } as SettingsStore
       }
     }
