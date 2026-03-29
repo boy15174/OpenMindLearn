@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { Node as RFNode, Viewport } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Layers } from 'lucide-react'
@@ -11,7 +11,7 @@ import { generateNode } from '../../services/api'
 import type { CanvasMode, DetailPanelState, MetaEditorState, VersionDialogState } from '../../types/canvas'
 import type { NodeImage } from '../../types'
 import { buildDiffLines } from '../../utils/search'
-import { readFilesAsNodeImages } from '../../utils/image'
+import { readClipboardImages, readFilesAsNodeImages } from '../../utils/image'
 import { useToastStore } from '../../stores/toastStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useCanvasContextMenu } from '../../hooks/useCanvasContextMenu'
@@ -275,21 +275,59 @@ export function Canvas() {
   const handleGenerateFirstFromPrompt = useCallback(async () => {
     const prompt = initialInput.trim()
     if (!prompt) return
+    const images = initialImages.length > 0 ? initialImages : undefined
+    const placeholderNodeId = createFirstNode('', false, prompt, images, '', true)
+    setInitialInput('')
+    setInitialImages([])
     setInitialGenerating(true)
     try {
-      const images = initialImages.length > 0 ? initialImages : undefined
       const result = await generateNode(prompt, images)
-      createFirstNode(result.content || '', false, prompt, images, result.thinking || '')
-      setInitialInput('')
-      setInitialImages([])
+      setNodes((nds) => {
+        const now = new Date().toISOString()
+        const nextNodes = nds.map((node) =>
+          node.id === placeholderNodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  content: result.content || '',
+                  thinking: result.thinking || '',
+                  question: prompt,
+                  isGenerating: false,
+                  updatedAt: now
+                }
+              }
+            : node
+        )
+        return refreshNodeRuntimeData(nextNodes, edges)
+      })
       showToast(t('canvas.toast.firstNodeGenerated'), 'success')
     } catch (error) {
       console.error(t('canvas.toast.firstNodeGenerateFailed'), error)
+      setNodes((nds) => {
+        const now = new Date().toISOString()
+        const nextNodes = nds.map((node) =>
+          node.id === placeholderNodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  content: t('canvas.toast.firstNodeGenerateFailed'),
+                  thinking: '',
+                  question: prompt,
+                  isGenerating: false,
+                  updatedAt: now
+                }
+              }
+            : node
+        )
+        return refreshNodeRuntimeData(nextNodes, edges)
+      })
       showToast(t('canvas.toast.firstNodeGenerateFailed'), 'error')
     } finally {
       setInitialGenerating(false)
     }
-  }, [createFirstNode, initialInput, initialImages, showToast, t])
+  }, [createFirstNode, edges, initialInput, initialImages, refreshNodeRuntimeData, setNodes, showToast, t])
   const handleInitialImageUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
@@ -298,6 +336,18 @@ export function Canvas() {
     })
     e.target.value = ''
   }, [])
+  const handleInitialInputPaste = useCallback((e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'))
+    if (!hasImage) return
+    e.preventDefault()
+    readClipboardImages(items).then((newImages) => {
+      if (newImages.length === 0) return
+      setInitialImages((prev) => [...prev, ...newImages])
+      showToast(t('canvas.toast.pastedImages', { count: newImages.length }), 'success')
+    })
+  }, [showToast, t])
   return (
     <div className="w-screen h-screen flex flex-col bg-background">
       <Toolbar onSave={handleSave} onLoad={handleLoad} onNew={handleNew} mode={canvasMode} onModeChange={setCanvasMode} />
@@ -405,6 +455,7 @@ export function Canvas() {
             initialGenerating={initialGenerating}
             initialImages={initialImages}
             onInitialInputChange={setInitialInput}
+            onInitialInputPaste={handleInitialInputPaste}
             onInitialImageUpload={handleInitialImageUpload}
             onRemoveInitialImage={(imageId) => setInitialImages((prev) => prev.filter((img) => img.id !== imageId))}
             onPreviewImage={setPreviewImage}

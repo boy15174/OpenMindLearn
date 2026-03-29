@@ -1,5 +1,5 @@
 import { ClipboardPaste, ImagePlus, Sparkles, X } from 'lucide-react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ClipboardEvent } from 'react'
 import type { NodeImage } from '../../types'
 
 interface CanvasFirstNodePanelProps {
@@ -9,6 +9,7 @@ interface CanvasFirstNodePanelProps {
   initialGenerating: boolean
   initialImages: NodeImage[]
   onInitialInputChange: (value: string) => void
+  onInitialInputPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void
   onInitialImageUpload: (e: ChangeEvent<HTMLInputElement>) => void
   onRemoveInitialImage: (imageId: string) => void
   onPreviewImage: (src: string) => void
@@ -24,6 +25,7 @@ export function CanvasFirstNodePanel({
   initialGenerating,
   initialImages,
   onInitialInputChange,
+  onInitialInputPaste,
   onInitialImageUpload,
   onRemoveInitialImage,
   onPreviewImage,
@@ -41,6 +43,7 @@ export function CanvasFirstNodePanel({
         <textarea
           value={initialInput}
           onChange={(e) => onInitialInputChange(e.target.value)}
+          onPaste={onInitialInputPaste}
           rows={6}
           className="mt-3 w-full p-3 text-sm rounded border border-border/70 bg-background resize-none outline-none focus:border-primary/50"
           placeholder={t('canvas.firstNode.placeholder')}

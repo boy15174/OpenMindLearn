@@ -19,6 +19,7 @@ import { useI18n } from '../hooks/useI18n'
 
 export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   const isReadOnly = data.mode === 'view'
+  const isGenerating = Boolean(data.isGenerating)
   const images = data.images || []
   const hasImages = images.length > 0
   const { t } = useI18n()
@@ -26,6 +27,8 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
   const [content, setContent] = useState(data.content)
   const [loading, setLoading] = useState(false)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [generateIndicatorScale, setGenerateIndicatorScale] = useState(1)
+  const cardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { showToast } = useToastStore()
 
@@ -76,6 +79,25 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
       textareaRef.current.focus()
     }
   }, [isEditing])
+
+  useEffect(() => {
+    const card = cardRef.current
+    if (!card) return
+
+    const updateScale = () => {
+      const rect = card.getBoundingClientRect()
+      const minSide = Math.min(rect.width, rect.height)
+      const nextScale = Math.max(1, Math.min(2.2, minSide / 320))
+      setGenerateIndicatorScale((prev) => (Math.abs(prev - nextScale) < 0.05 ? prev : nextScale))
+    }
+
+    updateScale()
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => updateScale())
+    observer.observe(card)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const container = selection.contentRef.current
@@ -132,6 +154,7 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
 
   return (
     <div
+      ref={cardRef}
       onPaste={handlePaste}
       className={cn(
         'rounded-lg border bg-background text-foreground shadow-sm transition-all',
@@ -192,6 +215,19 @@ export const NodeCard = memo(({ data, selected }: NodeCardProps) => {
             )}
             placeholder={t('node.placeholder')}
           />
+        ) : isGenerating ? (
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <div
+              className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary animate-pulse"
+              style={{
+                transform: `scale(${generateIndicatorScale})`,
+                transformOrigin: 'center center'
+              }}
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>{t('common.generating')}</span>
+            </div>
+          </div>
         ) : (
           <div className="space-y-1 flex-1 min-h-0 flex flex-col">
             {(data.thinking || '').trim() && (

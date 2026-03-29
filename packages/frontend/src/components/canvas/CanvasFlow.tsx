@@ -60,6 +60,11 @@ export function CanvasFlow({
       panOnDrag={!regionDragActive && !regionCreateMode}
       colorMode={theme}
       fitView
+      fitViewOptions={{
+        padding: 0.2,
+        minZoom: 0.2,
+        maxZoom: 1
+      }}
     >
       <Background gap={16} size={1} color="hsl(var(--canvas-dot))" variant={BackgroundVariant.Dots} />
       <Controls className="!shadow-md !border-border !rounded-lg" onInteractiveChange={onInteractiveChange} />

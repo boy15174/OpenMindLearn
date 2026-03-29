@@ -256,7 +256,15 @@ export function useCanvasNodes(
   }, [getNodes, getEdges, handleGenerate, handleImagesChange, handleSaveNodeContent, llmSettings.contextMaxDepth, refreshNodeRuntimeData, setEdges, setNodes])
 
   const createNodeAtPosition = useCallback(
-    (position: { x: number; y: number }, content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[], initialThinking?: string) => {
+    (
+      position: { x: number; y: number },
+      content: string,
+      isEditing: boolean,
+      question?: string,
+      initialImages?: NodeImage[],
+      initialThinking?: string,
+      initialIsGenerating = false
+    ) => {
     const nodeId = Date.now().toString()
     const currentEdges = getEdges()
     const now = new Date().toISOString()
@@ -273,6 +281,7 @@ export function useCanvasNodes(
         content,
         thinking: initialThinking || '',
         question: question || '',
+        isGenerating: initialIsGenerating,
         isEditing,
         nodeId,
         width: NODE_DEFAULT_WIDTH,
@@ -297,16 +306,24 @@ export function useCanvasNodes(
       const nextNodes = [...nds, newNode]
       return refreshNodeRuntimeData(nextNodes, currentEdges)
     })
+    return nodeId
   }, [getEdges, handleGenerate, handleExpand, handleImagesChange, handleSaveNodeContent, refreshNodeRuntimeData, setNodes])
 
-  const createFirstNode = useCallback((content: string, isEditing: boolean, question?: string, initialImages?: NodeImage[], initialThinking?: string) => {
+  const createFirstNode = useCallback((
+    content: string,
+    isEditing: boolean,
+    question?: string,
+    initialImages?: NodeImage[],
+    initialThinking?: string,
+    initialIsGenerating = false
+  ) => {
     const center = getCanvasCenterFlowPosition()
     const position = calculateInitialNodePosition(
       getNodes().map(toPlacementNode),
       center,
       { nodeWidth: NODE_DEFAULT_WIDTH, nodeHeight: NODE_DEFAULT_HEIGHT }
     )
-    createNodeAtPosition(position, content, isEditing, question, initialImages, initialThinking)
+    return createNodeAtPosition(position, content, isEditing, question, initialImages, initialThinking, initialIsGenerating)
   }, [createNodeAtPosition, getCanvasCenterFlowPosition, getNodes])
 
   const createNode = useCallback((position: { x: number; y: number }) => {

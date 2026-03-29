@@ -1,8 +1,8 @@
 import type { SourceReference, NodeVersion } from './index'
 
 // ── 常量 ──────────────────────────────────────────────
-export const NODE_DEFAULT_WIDTH = 380
-export const NODE_DEFAULT_HEIGHT = 300
+export const NODE_DEFAULT_WIDTH = 507
+export const NODE_DEFAULT_HEIGHT = 400
 export const NODE_MIN_WIDTH = 280
 export const NODE_MIN_HEIGHT = 200
 export const REGION_PADDING = 24
