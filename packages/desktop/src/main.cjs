@@ -150,6 +150,7 @@ async function startBackendIfNeeded() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
+      OML_DISABLE_DOTENV: '1',
       HOST: '127.0.0.1',
       PORT: String(backendPort)
     },

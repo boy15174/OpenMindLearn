@@ -1,6 +1,7 @@
 appId: com.openmindlearn.app
 productName: OpenMindLearn
 asar: true
+afterPack: ./scripts/assert-no-env.cjs
 
 directories:
   output: release
@@ -8,12 +9,22 @@ directories:
 files:
   - src/**/*
   - package.json
+  - '!**/.env'
+  - '!**/.env.*'
 
 extraResources:
   - from: ../frontend/dist
     to: frontend/dist
+    filter:
+      - '**/*'
+      - '!**/.env'
+      - '!**/.env.*'
   - from: ../backend/dist
     to: backend/dist
+    filter:
+      - '**/*'
+      - '!**/.env'
+      - '!**/.env.*'
   - from: ../backend/package.json
     to: backend/package.json
 
